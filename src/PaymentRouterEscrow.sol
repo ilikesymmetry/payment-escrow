@@ -3,16 +3,20 @@ pragma solidity ^0.8.13;
 
 import {SpendPermission, SpendPermissionManager} from "spend-permissions/SpendPermissionManager.sol";
 
-import {PaymentRouter} from "./PaymentRouter.sol";
+import {PaymentRouterBase} from "./PaymentRouterBase.sol";
 
-contract PaymentRouterEscrow is PaymentRouter {
+/// @notice PaymentRouter with escrow functionality for improved capture guarantees.
+contract PaymentRouterEscrow is PaymentRouterBase {
+    error InsufficientEscrow(bytes32 permissionHash, uint256 escrowedValue, uint160 requestedValue);
+
     event Escrowed(bytes32 indexed permissionHash, uint256 value);
+
     event EscrowReleased(bytes32 indexed permissionHash, address recipient, uint256 value);
 
     mapping(bytes32 permissionHash => uint256 value) internal _escrowed;
 
     constructor(address initialOwner, SpendPermissionManager spendPermissionManager)
-        PaymentRouter(initialOwner, spendPermissionManager)
+        PaymentRouterBase(initialOwner, spendPermissionManager)
     {}
 
     function escrow(SpendPermission calldata permission, uint160 value) external onlyOwner {
@@ -27,7 +31,7 @@ contract PaymentRouterEscrow is PaymentRouter {
         onlyOwner
     {
         bool approved = PERMISSION_MANAGER.approveWithSignature(permission, signature);
-        if (!approved) revert();
+        if (!approved) revert PermissionApprovalFailed();
 
         PERMISSION_MANAGER.spend(permission, value);
 
@@ -40,7 +44,7 @@ contract PaymentRouterEscrow is PaymentRouter {
         address recipient = decodeExtraData(permission.extraData);
         bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
         uint256 escrowedValue = _escrowed[permissionHash];
-        if (escrowedValue < value) revert();
+        if (escrowedValue < value) revert InsufficientEscrow(permissionHash, escrowedValue, value);
 
         _escrowed[permissionHash] -= value;
 

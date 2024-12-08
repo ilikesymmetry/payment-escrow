@@ -6,7 +6,10 @@ import {Ownable} from "solady/auth/Ownable.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SpendPermission, PeriodSpend, SpendPermissionManager} from "spend-permissions/SpendPermissionManager.sol";
 
-contract PaymentRouter is Ownable {
+/// @notice Route payments to recipients using Spend Permissions (https://github.com/coinbase/spend-permissions).
+contract PaymentRouterBase is Ownable {
+    error PermissionApprovalFailed();
+
     error FeeBpsOverflow(uint16 feeBps);
 
     error ZeroFeeRecipient();
@@ -38,7 +41,9 @@ contract PaymentRouter is Ownable {
         external
         onlyOwner
     {
-        PERMISSION_MANAGER.approveWithSignature(permission, signature);
+        bool approved = PERMISSION_MANAGER.approveWithSignature(permission, signature);
+        if (!approved) revert PermissionApprovalFailed();
+
         PERMISSION_MANAGER.spend(permission, value);
 
         if (feeBps > 0) {
