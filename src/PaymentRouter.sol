@@ -13,7 +13,18 @@ import {SpendPermission, PeriodSpend, SpendPermissionManager} from "spend-permis
  */
 
 /// @notice Route payments to recipients using Spend Permissions (https://github.com/coinbase/spend-permissions).
+/// @dev Escrows funds between buyers and merchants.
 contract PaymentRouterBase is Ownable {
+    address public constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+
+    SpendPermissionManager public immutable PERMISSION_MANAGER;
+
+    mapping(bytes32 permissionHash => uint256 value) internal _escrowed;
+
+    mapping(address operator => uint16 bps) _feeBps;
+
+    mapping(address operator => address recipient) _feeRecipient;
+
     event EscrowIncreased(bytes32 indexed permissionHash, address indexed account, uint256 value);
 
     event EscrowDecreased(bytes32 indexed permissionHash, address indexed account, uint256 value);
@@ -29,16 +40,6 @@ contract PaymentRouterBase is Ownable {
     error FeeBpsOverflow(uint16 feeBps);
 
     error ZeroFeeRecipient();
-
-    address public constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
-
-    SpendPermissionManager public immutable PERMISSION_MANAGER;
-
-    mapping(bytes32 permissionHash => uint256 value) internal _escrowed;
-
-    mapping(address operator => uint16 bps) _feeBps;
-
-    mapping(address operator => address recipient) _feeRecipient;
 
     modifier onlyOperator(SpendPermission calldata permission) {
         (address recipient, address operator) = decodeExtraData(permission.extraData);
@@ -122,8 +123,6 @@ contract PaymentRouterBase is Ownable {
         // TODO
     }
 
-    // IMMEDIATE CAPTURE
-
     /// @notice Move funds from buyer to merchant using a pre-approved spend permission.
     function capture(SpendPermission calldata permission, uint160 value) external onlyOperator(permission) {
         (address recipient, address operator) = decodeExtraData(permission.extraData);
@@ -164,14 +163,17 @@ contract PaymentRouterBase is Ownable {
         emit FeesUpdated(msg.sender, newFeeBps, newFeeRecipient);
     }
 
+    /// @notice Encode `SpendPermission.extraData` with a recipient and operator address.
     function encodeExtraData(address recipient, address operator) public pure returns (bytes memory extraData) {
         return abi.encode(recipient, operator);
     }
 
+    /// @notice Decode `SpendPermission.extraData` into a recipient and operator address.
     function decodeExtraData(bytes calldata extraData) public pure returns (address recipient, address operator) {
         return abi.decode(extraData, (address, address));
     }
 
+    /// @notice Transfer tokens from the escrow to a recipient.
     function _transfer(address token, address recipient, uint256 value) internal {
         if (token == NATIVE_TOKEN) {
             SafeTransferLib.safeTransferETH(recipient, value);
