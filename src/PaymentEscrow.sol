@@ -8,12 +8,11 @@ import {SpendPermission, PeriodSpend, SpendPermissionManager} from "spend-permis
 
 /**
  * TODO
- * refund function
- * per-transaction fee take rate and recipients
+ * refunds
+ * per-transaction fees and splits
  */
 
-/// @notice Route payments to recipients using Spend Permissions (https://github.com/coinbase/spend-permissions).
-/// @dev Escrows funds between buyers and merchants.
+/// @notice Route and escrow payments using Spend Permissions (https://github.com/coinbase/spend-permissions).
 contract PaymentEscrow is Ownable {
     address public constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
@@ -146,11 +145,6 @@ contract PaymentEscrow is Ownable {
         _feeBps[msg.sender] = newFeeBps;
         _feeRecipient[msg.sender] = newFeeRecipient;
         emit FeesUpdated(msg.sender, newFeeBps, newFeeRecipient);
-    }
-
-    /// @notice Encode `SpendPermission.extraData` with a recipient and operator address.
-    function encodeExtraData(address recipient, address operator) public pure returns (bytes memory extraData) {
-        return abi.encode(recipient, operator);
     }
 
     /// @notice Decode `SpendPermission.extraData` into a recipient and operator address.

@@ -1,3 +1,3 @@
-# Payments Router
+# Payment Escrow
 
-Onchain-native payments at scale using [Spend Permissions](https://github.com/coinbase/spend-permissions).
+Route and escrow payments using [Spend Permissions](https://github.com/coinbase/spend-permissions).
