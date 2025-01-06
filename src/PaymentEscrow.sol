@@ -14,31 +14,23 @@ import {SpendPermission, PeriodSpend, SpendPermissionManager} from "spend-permis
 
 /// @notice Route payments to recipients using Spend Permissions (https://github.com/coinbase/spend-permissions).
 /// @dev Escrows funds between buyers and merchants.
-contract PaymentRouterBase is Ownable {
+contract PaymentEscrow is Ownable {
     address public constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
     SpendPermissionManager public immutable PERMISSION_MANAGER;
 
     mapping(bytes32 permissionHash => uint256 value) internal _escrowed;
-
     mapping(address operator => uint16 bps) _feeBps;
-
     mapping(address operator => address recipient) _feeRecipient;
 
     event EscrowIncreased(bytes32 indexed permissionHash, address indexed account, uint256 value);
-
     event EscrowDecreased(bytes32 indexed permissionHash, address indexed account, uint256 value);
-
     event EscrowCaptured(bytes32 indexed permissionHash, address recipient, uint256 value);
-
     event FeesUpdated(address indexed operator, uint16 feeBps, address feeRecipient);
 
     error InsufficientEscrow(bytes32 permissionHash, uint256 escrowedValue, uint160 requestedValue);
-
     error PermissionApprovalFailed();
-
     error FeeBpsOverflow(uint16 feeBps);
-
     error ZeroFeeRecipient();
 
     modifier onlyOperator(SpendPermission calldata permission) {
@@ -51,6 +43,11 @@ contract PaymentRouterBase is Ownable {
         PERMISSION_MANAGER = spendPermissionManager;
     }
 
+    /// @notice Move funds from buyer to escrow via pre-approved spend permission.
+    function escrow(SpendPermission calldata permission, uint160 value) external onlyOperator(permission) {
+        _escrow(permission, value);
+    }
+
     /// @notice Move funds from buyer to escrow via a signed spend permission.
     function escrowWithSignature(SpendPermission calldata permission, uint160 value, bytes calldata signature)
         external
@@ -59,24 +56,12 @@ contract PaymentRouterBase is Ownable {
         bool approved = PERMISSION_MANAGER.approveWithSignature(permission, signature);
         if (!approved) revert PermissionApprovalFailed();
 
-        PERMISSION_MANAGER.spend(permission, value);
-
-        bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
-        _escrowed[permissionHash] += value;
-        emit EscrowIncreased(permissionHash, permission.account, value);
-    }
-
-    /// @notice Move funds from buyer to escrow via pre-approved spend permission.
-    function escrow(SpendPermission calldata permission, uint160 value) external onlyOperator(permission) {
-        PERMISSION_MANAGER.spend(permission, value);
-        bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
-        _escrowed[permissionHash] += value;
-        emit EscrowIncreased(permissionHash, permission.account, value);
+        _escrow(permission, value);
     }
 
     /// @notice Move funds from escrow to buyer.
     /// @dev Intended for returning over-estimated taxes.
-    function revertEscrow(SpendPermission calldata permission, uint160 value) external onlyOperator(permission) {
+    function returnFromEscrow(SpendPermission calldata permission, uint160 value) external onlyOperator(permission) {
         bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
         uint256 escrowedValue = _escrowed[permissionHash];
         if (escrowedValue < value) revert();
@@ -171,6 +156,14 @@ contract PaymentRouterBase is Ownable {
     /// @notice Decode `SpendPermission.extraData` into a recipient and operator address.
     function decodeExtraData(bytes calldata extraData) public pure returns (address recipient, address operator) {
         return abi.decode(extraData, (address, address));
+    }
+
+    /// @notice Escrow funds from permission account into this contract.
+    function _escrow(SpendPermission calldata permission, uint160 value) internal {
+        PERMISSION_MANAGER.spend(permission, value);
+        bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
+        _escrowed[permissionHash] += value;
+        emit EscrowIncreased(permissionHash, permission.account, value);
     }
 
     /// @notice Transfer tokens from the escrow to a recipient.
