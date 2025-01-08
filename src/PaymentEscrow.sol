@@ -19,12 +19,14 @@ contract PaymentEscrow is Ownable {
     SpendPermissionManager public immutable PERMISSION_MANAGER;
 
     mapping(bytes32 permissionHash => uint256 value) internal _escrowed;
+    mapping(bytes32 permissionhash => uint256 value) internal _captured;
     mapping(address operator => uint16 bps) _feeBps;
     mapping(address operator => address recipient) _feeRecipient;
 
-    event EscrowIncreased(bytes32 indexed permissionHash, address indexed account, uint256 value);
-    event EscrowDecreased(bytes32 indexed permissionHash, address indexed account, uint256 value);
-    event EscrowCaptured(bytes32 indexed permissionHash, address recipient, uint256 value);
+    event PaymentEscrowed(bytes32 indexed permissionHash, uint256 value);
+    event EscrowReduced(bytes32 indexed permissionHash, uint256 value);
+    event PaymentCaptured(bytes32 indexed permissionHash, uint256 value);
+    event PaymentRefunded(bytes32 indexed permissionHash, uint256 value);
     event FeesUpdated(address indexed operator, uint16 feeBps, address feeRecipient);
 
     error InsufficientEscrow(bytes32 permissionHash, uint256 escrowedValue, uint160 requestedValue);
@@ -66,8 +68,8 @@ contract PaymentEscrow is Ownable {
         if (escrowedValue < value) revert();
 
         _escrowed[permissionHash] -= value;
+        emit EscrowReduced(permissionHash, escrowedValue);
         _transfer(permission.token, permission.account, value);
-        emit EscrowDecreased(permissionHash, permission.account, escrowedValue);
     }
 
     /// @notice Move funds from escrow to merchant.
@@ -79,14 +81,8 @@ contract PaymentEscrow is Ownable {
         if (escrowedValue < value) revert InsufficientEscrow(permissionHash, escrowedValue, value);
 
         _escrowed[permissionHash] -= value;
-
-        uint16 feeBps = _feeBps[operator];
-        if (feeBps > 0) {
-            _transfer(permission.token, _feeRecipient[operator], feeBps * value / 10_000);
-        }
-        _transfer(permission.token, recipient, (10_000 - feeBps) * value / 10_000);
-
-        emit EscrowCaptured(permissionHash, recipient, value);
+        emit EscrowReduced(permissionHash, value);
+        _capture(permissionHash, operator, recipient, permission.token, value);
     }
 
     /// @notice Cancel payment by revoking permission and returning escrowed funds.
@@ -98,25 +94,39 @@ contract PaymentEscrow is Ownable {
         if (escrowedValue == 0) return;
 
         delete _escrowed[permissionHash];
+        emit EscrowReduced(permissionHash, escrowedValue);
         _transfer(permission.token, permission.account, escrowedValue);
-        emit EscrowDecreased(permissionHash, permission.account, escrowedValue);
     }
 
-    /// @notice Pull funds from merchant and return to buyer.
-    function refund(SpendPermission calldata permission, uint160 value) external onlyOperator(permission) {
-        // TODO
+    /// @notice Return previously-captured tokens to buyer.
+    function refund(SpendPermission calldata permission, uint160 value) external payable {
+        (address recipient,) = decodeExtraData(permission.extraData);
+        if (msg.sender != recipient) revert();
+
+        // limit refund value to previously captured
+        bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
+        uint256 captured = _captured[permissionHash];
+        if (captured < value) revert();
+        _captured[permissionHash] = captured - value;
+
+        // return tokens to buyer
+        if (permission.token == NATIVE_TOKEN) {
+            if (value != msg.value) revert();
+            SafeTransferLib.safeTransferETH(permission.account, value);
+        } else {
+            SafeTransferLib.safeTransferFrom(permission.token, recipient, permission.account, value);
+        }
+
+        emit PaymentRefunded(permissionHash, value);
     }
 
     /// @notice Move funds from buyer to merchant using a pre-approved spend permission.
     function capture(SpendPermission calldata permission, uint160 value) external onlyOperator(permission) {
-        (address recipient, address operator) = decodeExtraData(permission.extraData);
         PERMISSION_MANAGER.spend(permission, value);
 
-        uint16 feeBps = _feeBps[operator];
-        if (feeBps > 0) {
-            _transfer(permission.token, operator, feeBps * value / 10_000);
-        }
-        _transfer(permission.token, recipient, (10_000 - feeBps) * value / 10_000);
+        bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
+        (address recipient, address operator) = decodeExtraData(permission.extraData);
+        _capture(permissionHash, operator, recipient, permission.token, value);
     }
 
     /// @notice Move funds from buyer to merchant while approving a spend permission.
@@ -129,12 +139,9 @@ contract PaymentEscrow is Ownable {
 
         PERMISSION_MANAGER.spend(permission, value);
 
+        bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
         (address recipient, address operator) = decodeExtraData(permission.extraData);
-        uint16 feeBps = _feeBps[operator];
-        if (feeBps > 0) {
-            _transfer(permission.token, operator, feeBps * value / 10_000);
-        }
-        _transfer(permission.token, recipient, (10_000 - feeBps) * value / 10_000);
+        _capture(permissionHash, operator, recipient, permission.token, value);
     }
 
     /// @notice Update fee take rate and recipient for operator.
@@ -157,7 +164,22 @@ contract PaymentEscrow is Ownable {
         PERMISSION_MANAGER.spend(permission, value);
         bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
         _escrowed[permissionHash] += value;
-        emit EscrowIncreased(permissionHash, permission.account, value);
+        emit PaymentEscrowed(permissionHash, value);
+    }
+
+    /// @notice Transfer funds to payment receipient from this contract.
+    function _capture(bytes32 permissionHash, address operator, address recipient, address token, uint256 value)
+        internal
+    {
+        _captured[permissionHash] += value;
+
+        uint16 feeBps = _feeBps[operator];
+        if (feeBps > 0) {
+            _transfer(token, _feeRecipient[operator], feeBps * value / 10_000);
+        }
+        _transfer(token, recipient, (10_000 - feeBps) * value / 10_000);
+
+        emit PaymentCaptured(permissionHash, value);
     }
 
     /// @notice Transfer tokens from the escrow to a recipient.
