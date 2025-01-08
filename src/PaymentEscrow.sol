@@ -31,6 +31,9 @@ contract PaymentEscrow is Ownable {
 
     error InsufficientEscrow(bytes32 permissionHash, uint256 escrowedValue, uint160 requestedValue);
     error PermissionApprovalFailed();
+    error InvalidSender(address sender, address expected);
+    error RefundExceedsCapture(uint256 refund, uint256 captured);
+    error RefundValueMismatch(uint256 msgValue, uint256 argValue);
     error FeeBpsOverflow(uint16 feeBps);
     error ZeroFeeRecipient();
 
@@ -98,28 +101,6 @@ contract PaymentEscrow is Ownable {
         _transfer(permission.token, permission.account, escrowedValue);
     }
 
-    /// @notice Return previously-captured tokens to buyer.
-    function refund(SpendPermission calldata permission, uint160 value) external payable {
-        (address recipient,) = decodeExtraData(permission.extraData);
-        if (msg.sender != recipient) revert();
-
-        // limit refund value to previously captured
-        bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
-        uint256 captured = _captured[permissionHash];
-        if (captured < value) revert();
-        _captured[permissionHash] = captured - value;
-
-        // return tokens to buyer
-        if (permission.token == NATIVE_TOKEN) {
-            if (value != msg.value) revert();
-            SafeTransferLib.safeTransferETH(permission.account, value);
-        } else {
-            SafeTransferLib.safeTransferFrom(permission.token, recipient, permission.account, value);
-        }
-
-        emit PaymentRefunded(permissionHash, value);
-    }
-
     /// @notice Move funds from buyer to merchant using a pre-approved spend permission.
     function capture(SpendPermission calldata permission, uint160 value) external onlyOperator(permission) {
         PERMISSION_MANAGER.spend(permission, value);
@@ -142,6 +123,29 @@ contract PaymentEscrow is Ownable {
         bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
         (address recipient, address operator) = decodeExtraData(permission.extraData);
         _capture(permissionHash, operator, recipient, permission.token, value);
+    }
+
+    /// @notice Return previously-captured tokens to buyer.
+    function refund(SpendPermission calldata permission, uint160 value) external payable {
+        // check sender is same as original payment recipient
+        (address recipient,) = decodeExtraData(permission.extraData);
+        if (msg.sender != recipient) revert InvalidSender(msg.sender, recipient);
+
+        // limit refund value to previously captured
+        bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
+        uint256 captured = _captured[permissionHash];
+        if (captured < value) revert RefundExceedsCapture(value, captured);
+        _captured[permissionHash] = captured - value;
+
+        // return tokens to buyer
+        if (permission.token == NATIVE_TOKEN) {
+            if (value != msg.value) revert RefundValueMismatch(msg.value, value);
+            SafeTransferLib.safeTransferETH(permission.account, value);
+        } else {
+            SafeTransferLib.safeTransferFrom(permission.token, recipient, permission.account, value);
+        }
+
+        emit PaymentRefunded(permissionHash, value);
     }
 
     /// @notice Update fee take rate and recipient for operator.
