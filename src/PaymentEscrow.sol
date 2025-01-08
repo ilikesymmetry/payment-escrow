@@ -6,12 +6,6 @@ import {Ownable} from "solady/auth/Ownable.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SpendPermission, PeriodSpend, SpendPermissionManager} from "spend-permissions/SpendPermissionManager.sol";
 
-/**
- * TODO
- * refunds
- * per-transaction fees and splits
- */
-
 /// @notice Route and escrow payments using Spend Permissions (https://github.com/coinbase/spend-permissions).
 contract PaymentEscrow is Ownable {
     address public constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
@@ -39,7 +33,7 @@ contract PaymentEscrow is Ownable {
 
     modifier onlyOperator(SpendPermission calldata permission) {
         (address recipient, address operator) = decodeExtraData(permission.extraData);
-        if (msg.sender != operator) revert();
+        if (msg.sender != operator) revert InvalidSender(msg.sender, operator);
         _;
     }
 
@@ -88,19 +82,6 @@ contract PaymentEscrow is Ownable {
         _capture(permissionHash, operator, recipient, permission.token, value);
     }
 
-    /// @notice Cancel payment by revoking permission and returning escrowed funds.
-    function void(SpendPermission calldata permission) external onlyOperator(permission) {
-        PERMISSION_MANAGER.revokeAsSpender(permission);
-
-        bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
-        uint256 escrowedValue = _escrowed[permissionHash];
-        if (escrowedValue == 0) return;
-
-        delete _escrowed[permissionHash];
-        emit EscrowReduced(permissionHash, escrowedValue);
-        _transfer(permission.token, permission.account, escrowedValue);
-    }
-
     /// @notice Move funds from buyer to merchant using a pre-approved spend permission.
     function capture(SpendPermission calldata permission, uint160 value) external onlyOperator(permission) {
         PERMISSION_MANAGER.spend(permission, value);
@@ -146,6 +127,19 @@ contract PaymentEscrow is Ownable {
         }
 
         emit PaymentRefunded(permissionHash, value);
+    }
+
+    /// @notice Cancel payment by revoking permission and returning escrowed funds.
+    function void(SpendPermission calldata permission) external onlyOperator(permission) {
+        PERMISSION_MANAGER.revokeAsSpender(permission);
+
+        bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
+        uint256 escrowedValue = _escrowed[permissionHash];
+        if (escrowedValue == 0) return;
+
+        delete _escrowed[permissionHash];
+        emit EscrowReduced(permissionHash, escrowedValue);
+        _transfer(permission.token, permission.account, escrowedValue);
     }
 
     /// @notice Update fee take rate and recipient for operator.
