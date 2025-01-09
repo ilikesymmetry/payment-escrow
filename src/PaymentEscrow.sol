@@ -41,20 +41,18 @@ contract PaymentEscrow is Ownable {
         PERMISSION_MANAGER = spendPermissionManager;
     }
 
-    /// @notice Move funds from buyer to escrow via pre-approved spend permission.
-    function escrow(SpendPermission calldata permission, uint160 value) external onlyOperator(permission) {
-        _escrow(permission, value);
-    }
-
-    /// @notice Move funds from buyer to escrow via a signed spend permission.
-    function escrowWithSignature(SpendPermission calldata permission, uint160 value, bytes calldata signature)
-        external
-        onlyOperator(permission)
-    {
+    /// @notice Approve a spend permission via signature and enforce its approval status.
+    function approve(spendPermission calldata permission, bytes calldata signature) external {
         bool approved = PERMISSION_MANAGER.approveWithSignature(permission, signature);
         if (!approved) revert PermissionApprovalFailed();
+    }
 
-        _escrow(permission, value);
+    /// @notice Move funds from buyer to escrow via pre-approved spend permission.
+    function escrow(SpendPermission calldata permission, uint160 value) external onlyOperator(permission) {
+        PERMISSION_MANAGER.spend(permission, value);
+        bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
+        _escrowed[permissionHash] += value;
+        emit PaymentEscrowed(permissionHash, value);
     }
 
     /// @notice Move funds from escrow to buyer.
@@ -83,22 +81,8 @@ contract PaymentEscrow is Ownable {
     }
 
     /// @notice Move funds from buyer to merchant using a pre-approved spend permission.
+    /// @dev Same net effect as batching escrow+captureFromEscrow but less effort.
     function capture(SpendPermission calldata permission, uint160 value) external onlyOperator(permission) {
-        PERMISSION_MANAGER.spend(permission, value);
-
-        bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
-        (address recipient, address operator) = decodeExtraData(permission.extraData);
-        _capture(permissionHash, operator, recipient, permission.token, value);
-    }
-
-    /// @notice Move funds from buyer to merchant while approving a spend permission.
-    function captureWithSignature(SpendPermission calldata permission, uint160 value, bytes calldata signature)
-        external
-        onlyOperator(permission)
-    {
-        bool approved = PERMISSION_MANAGER.approveWithSignature(permission, signature);
-        if (!approved) revert PermissionApprovalFailed();
-
         PERMISSION_MANAGER.spend(permission, value);
 
         bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
@@ -155,14 +139,6 @@ contract PaymentEscrow is Ownable {
     /// @notice Decode `SpendPermission.extraData` into a recipient and operator address.
     function decodeExtraData(bytes calldata extraData) public pure returns (address recipient, address operator) {
         return abi.decode(extraData, (address, address));
-    }
-
-    /// @notice Escrow funds from permission account into this contract.
-    function _escrow(SpendPermission calldata permission, uint160 value) internal {
-        PERMISSION_MANAGER.spend(permission, value);
-        bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
-        _escrowed[permissionHash] += value;
-        emit PaymentEscrowed(permissionHash, value);
     }
 
     /// @notice Transfer funds to payment receipient from this contract.
