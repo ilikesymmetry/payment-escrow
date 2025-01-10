@@ -26,13 +26,14 @@ contract PaymentEscrow is Ownable {
     error InsufficientEscrow(bytes32 permissionHash, uint256 escrowedValue, uint160 requestedValue);
     error PermissionApprovalFailed();
     error InvalidSender(address sender, address expected);
+    error InvalidRefunder(address sender, address merchant, address operator);
     error RefundExceedsCapture(uint256 refund, uint256 captured);
     error RefundValueMismatch(uint256 msgValue, uint256 argValue);
     error FeeBpsOverflow(uint16 feeBps);
     error ZeroFeeRecipient();
 
     modifier onlyOperator(SpendPermission calldata permission) {
-        (address recipient, address operator) = decodeExtraData(permission.extraData);
+        (, address operator) = decodeExtraData(permission.extraData);
         if (msg.sender != operator) revert InvalidSender(msg.sender, operator);
         _;
     }
@@ -42,7 +43,7 @@ contract PaymentEscrow is Ownable {
     }
 
     /// @notice Approve a spend permission via signature and enforce its approval status.
-    function approve(spendPermission calldata permission, bytes calldata signature) external {
+    function approve(SpendPermission calldata permission, bytes calldata signature) external {
         bool approved = PERMISSION_MANAGER.approveWithSignature(permission, signature);
         if (!approved) revert PermissionApprovalFailed();
     }
@@ -70,47 +71,38 @@ contract PaymentEscrow is Ownable {
     /// @notice Move funds from escrow to merchant.
     /// @dev Partial capture supported with custom value parameter.
     function captureFromEscrow(SpendPermission calldata permission, uint160 value) external onlyOperator(permission) {
-        (address recipient, address operator) = decodeExtraData(permission.extraData);
+        (address merchant, address operator) = decodeExtraData(permission.extraData);
         bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
         uint256 escrowedValue = _escrowed[permissionHash];
         if (escrowedValue < value) revert InsufficientEscrow(permissionHash, escrowedValue, value);
 
         _escrowed[permissionHash] -= value;
         emit EscrowReduced(permissionHash, value);
-        _capture(permissionHash, operator, recipient, permission.token, value);
+        _capture(permissionHash, operator, merchant, permission.token, value);
     }
 
     /// @notice Move funds from buyer to merchant using a pre-approved spend permission.
-    /// @dev Same net effect as batching escrow+captureFromEscrow but less effort.
     function capture(SpendPermission calldata permission, uint160 value) external onlyOperator(permission) {
         PERMISSION_MANAGER.spend(permission, value);
 
         bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
-        (address recipient, address operator) = decodeExtraData(permission.extraData);
-        _capture(permissionHash, operator, recipient, permission.token, value);
+        (address merchant, address operator) = decodeExtraData(permission.extraData);
+        _capture(permissionHash, operator, merchant, permission.token, value);
     }
 
     /// @notice Return previously-captured tokens to buyer.
+    /// @dev Callable by both merchant and operator. Calling operators are assumed to have a way to get paid back by merchants.
     function refund(SpendPermission calldata permission, uint160 value) external payable {
-        // check sender is same as original payment recipient
-        (address recipient,) = decodeExtraData(permission.extraData);
-        if (msg.sender != recipient) revert InvalidSender(msg.sender, recipient);
+        (address merchant, address operator) = decodeExtraData(permission.extraData);
+        if (msg.sender != merchant && msg.sender != operator) revert InvalidRefunder(msg.sender, merchant, operator);
+        _refund(permission, value, msg.sender);
+    }
 
-        // limit refund value to previously captured
-        bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
-        uint256 captured = _captured[permissionHash];
-        if (captured < value) revert RefundExceedsCapture(value, captured);
-        _captured[permissionHash] = captured - value;
-
-        // return tokens to buyer
-        if (permission.token == NATIVE_TOKEN) {
-            if (value != msg.value) revert RefundValueMismatch(msg.value, value);
-            SafeTransferLib.safeTransferETH(permission.account, value);
-        } else {
-            SafeTransferLib.safeTransferFrom(permission.token, recipient, permission.account, value);
-        }
-
-        emit PaymentRefunded(permissionHash, value);
+    /// @notice Return previously-captured tokens to buyer.
+    /// @dev Only supports ERC20 tokens. Merchants should call `refund` directly for native token refunds.
+    function refundFromMerchant(SpendPermission calldata permission, uint160 value) external onlyOperator(permission) {
+        (address merchant,) = decodeExtraData(permission.extraData);
+        _refund(permission, value, merchant);
     }
 
     /// @notice Cancel payment by revoking permission and returning escrowed funds.
@@ -137,7 +129,7 @@ contract PaymentEscrow is Ownable {
     }
 
     /// @notice Decode `SpendPermission.extraData` into a recipient and operator address.
-    function decodeExtraData(bytes calldata extraData) public pure returns (address recipient, address operator) {
+    function decodeExtraData(bytes calldata extraData) public pure returns (address merchant, address operator) {
         return abi.decode(extraData, (address, address));
     }
 
@@ -154,6 +146,25 @@ contract PaymentEscrow is Ownable {
         _transfer(token, recipient, (10_000 - feeBps) * value / 10_000);
 
         emit PaymentCaptured(permissionHash, value);
+    }
+
+    /// @notice Return previously-captured tokens to buyer.
+    function _refund(SpendPermission calldata permission, uint160 value, address refunder) internal {
+        // limit refund value to previously captured
+        bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
+        uint256 captured = _captured[permissionHash];
+        if (captured < value) revert RefundExceedsCapture(value, captured);
+        _captured[permissionHash] = captured - value;
+
+        // return tokens to buyer
+        if (permission.token == NATIVE_TOKEN) {
+            if (value != msg.value) revert RefundValueMismatch(msg.value, value);
+            SafeTransferLib.safeTransferETH(permission.account, value);
+        } else {
+            SafeTransferLib.safeTransferFrom(permission.token, refunder, permission.account, value);
+        }
+
+        emit PaymentRefunded(permissionHash, value);
     }
 
     /// @notice Transfer tokens from the escrow to a recipient.
