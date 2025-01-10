@@ -4,7 +4,7 @@ pragma solidity ^0.8.13;
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {SpendPermission, PeriodSpend, SpendPermissionManager} from "spend-permissions/SpendPermissionManager.sol";
+import {SpendPermissionManager} from "spend-permissions/SpendPermissionManager.sol";
 
 /// @notice Route and escrow payments using Spend Permissions (https://github.com/coinbase/spend-permissions).
 contract PaymentEscrow is Ownable {
@@ -32,7 +32,7 @@ contract PaymentEscrow is Ownable {
     error FeeBpsOverflow(uint16 feeBps);
     error ZeroFeeRecipient();
 
-    modifier onlyOperator(SpendPermission calldata permission) {
+    modifier onlyOperator(SpendPermissionManager.SpendPermission calldata permission) {
         (, address operator) = decodeExtraData(permission.extraData);
         if (msg.sender != operator) revert InvalidSender(msg.sender, operator);
         _;
@@ -43,13 +43,16 @@ contract PaymentEscrow is Ownable {
     }
 
     /// @notice Approve a spend permission via signature and enforce its approval status.
-    function approve(SpendPermission calldata permission, bytes calldata signature) external {
+    function approve(SpendPermissionManager.SpendPermission calldata permission, bytes calldata signature) external {
         bool approved = PERMISSION_MANAGER.approveWithSignature(permission, signature);
         if (!approved) revert PermissionApprovalFailed();
     }
 
     /// @notice Move funds from buyer to escrow via pre-approved spend permission.
-    function escrow(SpendPermission calldata permission, uint160 value) external onlyOperator(permission) {
+    function escrow(SpendPermissionManager.SpendPermission calldata permission, uint160 value)
+        external
+        onlyOperator(permission)
+    {
         PERMISSION_MANAGER.spend(permission, value);
         bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
         _escrowed[permissionHash] += value;
@@ -58,7 +61,10 @@ contract PaymentEscrow is Ownable {
 
     /// @notice Move funds from escrow to buyer.
     /// @dev Intended for returning over-estimated taxes.
-    function returnFromEscrow(SpendPermission calldata permission, uint160 value) external onlyOperator(permission) {
+    function returnFromEscrow(SpendPermissionManager.SpendPermission calldata permission, uint160 value)
+        external
+        onlyOperator(permission)
+    {
         bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
         uint256 escrowedValue = _escrowed[permissionHash];
         if (escrowedValue < value) revert();
@@ -70,7 +76,10 @@ contract PaymentEscrow is Ownable {
 
     /// @notice Move funds from escrow to merchant.
     /// @dev Partial capture supported with custom value parameter.
-    function captureFromEscrow(SpendPermission calldata permission, uint160 value) external onlyOperator(permission) {
+    function captureFromEscrow(SpendPermissionManager.SpendPermission calldata permission, uint160 value)
+        external
+        onlyOperator(permission)
+    {
         (address merchant, address operator) = decodeExtraData(permission.extraData);
         bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
         uint256 escrowedValue = _escrowed[permissionHash];
@@ -82,7 +91,10 @@ contract PaymentEscrow is Ownable {
     }
 
     /// @notice Move funds from buyer to merchant using a pre-approved spend permission.
-    function capture(SpendPermission calldata permission, uint160 value) external onlyOperator(permission) {
+    function capture(SpendPermissionManager.SpendPermission calldata permission, uint160 value)
+        external
+        onlyOperator(permission)
+    {
         PERMISSION_MANAGER.spend(permission, value);
 
         bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
@@ -92,7 +104,7 @@ contract PaymentEscrow is Ownable {
 
     /// @notice Return previously-captured tokens to buyer.
     /// @dev Callable by both merchant and operator. Calling operators are assumed to have a way to get paid back by merchants.
-    function refund(SpendPermission calldata permission, uint160 value) external payable {
+    function refund(SpendPermissionManager.SpendPermission calldata permission, uint160 value) external payable {
         (address merchant, address operator) = decodeExtraData(permission.extraData);
         if (msg.sender != merchant && msg.sender != operator) revert InvalidRefunder(msg.sender, merchant, operator);
         _refund(permission, value, msg.sender);
@@ -100,13 +112,16 @@ contract PaymentEscrow is Ownable {
 
     /// @notice Return previously-captured tokens to buyer.
     /// @dev Only supports ERC20 tokens. Merchants should call `refund` directly for native token refunds.
-    function refundFromMerchant(SpendPermission calldata permission, uint160 value) external onlyOperator(permission) {
+    function refundFromMerchant(SpendPermissionManager.SpendPermission calldata permission, uint160 value)
+        external
+        onlyOperator(permission)
+    {
         (address merchant,) = decodeExtraData(permission.extraData);
         _refund(permission, value, merchant);
     }
 
     /// @notice Cancel payment by revoking permission and returning escrowed funds.
-    function void(SpendPermission calldata permission) external onlyOperator(permission) {
+    function void(SpendPermissionManager.SpendPermission calldata permission) external onlyOperator(permission) {
         PERMISSION_MANAGER.revokeAsSpender(permission);
 
         bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
@@ -149,7 +164,9 @@ contract PaymentEscrow is Ownable {
     }
 
     /// @notice Return previously-captured tokens to buyer.
-    function _refund(SpendPermission calldata permission, uint160 value, address refunder) internal {
+    function _refund(SpendPermissionManager.SpendPermission calldata permission, uint160 value, address refunder)
+        internal
+    {
         // limit refund value to previously captured
         bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
         uint256 captured = _captured[permissionHash];

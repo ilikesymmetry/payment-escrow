@@ -15,13 +15,12 @@ import {PaymentEscrow} from "../src/PaymentEscrow.sol";
  */
 contract Deploy is Script {
     function run() public {
-        // v1 https://github.com/coinbase/spend-permissions/releases/tag/v1.0.0
-        SpendPermissionManager spendPermissionManager =
-            SpendPermissionManager(0xf85210B21cC50302F477BA56686d2019dC9b67Ad);
+        // https://github.com/coinbase/spend-permissions/releases/tag/v1.0.0
+        address spendPermissionManager = 0xf85210B21cC50302F477BA56686d2019dC9b67Ad;
 
         vm.startBroadcast();
 
-        new PaymentEscrow{salt: 0}();
+        new PaymentEscrow{salt: 0}(SpendPermissionManager(payable(spendPermissionManager)));
 
         vm.stopBroadcast();
     }
