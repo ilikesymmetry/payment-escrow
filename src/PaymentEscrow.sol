@@ -21,9 +21,7 @@ contract PaymentEscrow {
     event PaymentCaptured(bytes32 indexed permissionHash, uint256 value);
     event PaymentRefunded(bytes32 indexed permissionHash, uint256 value);
     event DebtAdded(address indexed operator, address indexed merchant, address token, uint256 value);
-    event DebtRepaid(
-        address indexed operator, address indexed merchant, address token, bytes32 indexed permissionHash, uint256 value
-    );
+    event DebtRepaid(address indexed operator, address indexed merchant, address token, uint256 value);
     event FeesUpdated(address indexed operator, uint16 feeBps, address feeRecipient);
 
     error InsufficientEscrow(bytes32 permissionHash, uint256 escrowedValue, uint160 requestedValue);
@@ -162,6 +160,15 @@ contract PaymentEscrow {
         _transfer(permission.token, permission.account, escrowedValue);
     }
 
+    /// @notice Partially cancel the debt obligations of a merchant as an operator.
+    function cancelDebt(address merchant, address token, uint256 value) external {
+        uint256 debt = _debt[msg.sender][merchant][token];
+        if (value > debt) revert();
+
+        _debt[msg.sender][merchant][token] = debt - value;
+        emit DebtRepaid(msg.sender, merchant, token, value);
+    }
+
     /// @notice Update fee take rate and recipient for operator.
     function updateFees(uint16 newFeeBps, address newFeeRecipient) external {
         if (newFeeBps > 10_000) revert FeeBpsOverflow(newFeeBps);
@@ -194,13 +201,13 @@ contract PaymentEscrow {
             // more debt than this payment can cover, repay debt and set payment value to zero
             _debt[operator][merchant][token] = debt - value;
             value = 0;
-            emit DebtRepaid(operator, merchant, token, permissionHash, value);
+            emit DebtRepaid(operator, merchant, token, value);
             _transfer(token, operator, value);
         } else if (debt != 0) {
             // non-zero debt, but coverable with remainder of current capture value
             value -= debt;
             delete _debt[operator][merchant][token];
-            emit DebtRepaid(operator, merchant, token, permissionHash, debt);
+            emit DebtRepaid(operator, merchant, token, debt);
             _transfer(token, operator, debt);
         }
 
