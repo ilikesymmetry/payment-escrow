@@ -2,18 +2,17 @@
 pragma solidity ^0.8.13;
 
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {Ownable} from "solady/auth/Ownable.sol";
-import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SpendPermissionManager} from "spend-permissions/SpendPermissionManager.sol";
 
 /// @notice Route and escrow payments using Spend Permissions (https://github.com/coinbase/spend-permissions).
-contract PaymentEscrow is Ownable {
+contract PaymentEscrow {
     address public constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
     SpendPermissionManager public immutable PERMISSION_MANAGER;
 
     mapping(bytes32 permissionHash => uint256 value) internal _escrowed;
     mapping(bytes32 permissionhash => uint256 value) internal _captured;
+    mapping(address operator => mapping(address merchant => mapping(address token => uint256 value))) internal _debt;
     mapping(address operator => uint16 bps) _feeBps;
     mapping(address operator => address recipient) _feeRecipient;
 
@@ -21,6 +20,10 @@ contract PaymentEscrow is Ownable {
     event EscrowReduced(bytes32 indexed permissionHash, uint256 value);
     event PaymentCaptured(bytes32 indexed permissionHash, uint256 value);
     event PaymentRefunded(bytes32 indexed permissionHash, uint256 value);
+    event DebtAdded(address indexed operator, address indexed merchant, address token, uint256 value);
+    event DebtRepaid(
+        address indexed operator, address indexed merchant, address token, bytes32 indexed permissionHash, uint256 value
+    );
     event FeesUpdated(address indexed operator, uint16 feeBps, address feeRecipient);
 
     error InsufficientEscrow(bytes32 permissionHash, uint256 escrowedValue, uint160 requestedValue);
@@ -53,7 +56,10 @@ contract PaymentEscrow is Ownable {
         external
         onlyOperator(permission)
     {
+        // pull funds into this contract
         PERMISSION_MANAGER.spend(permission, value);
+
+        // increase escrow
         bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
         _escrowed[permissionHash] += value;
         emit PaymentEscrowed(permissionHash, value);
@@ -67,7 +73,7 @@ contract PaymentEscrow is Ownable {
     {
         bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
         uint256 escrowedValue = _escrowed[permissionHash];
-        if (escrowedValue < value) revert();
+        if (escrowedValue < value) revert InsufficientEscrow(permissionHash, escrowedValue, value);
 
         _escrowed[permissionHash] -= value;
         emit EscrowReduced(permissionHash, escrowedValue);
@@ -82,11 +88,15 @@ contract PaymentEscrow is Ownable {
     {
         (address merchant, address operator) = decodeExtraData(permission.extraData);
         bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
+
+        // check sufficient escrow to capture
         uint256 escrowedValue = _escrowed[permissionHash];
         if (escrowedValue < value) revert InsufficientEscrow(permissionHash, escrowedValue, value);
 
+        // decreate escrow
         _escrowed[permissionHash] -= value;
         emit EscrowReduced(permissionHash, value);
+
         _capture(permissionHash, operator, merchant, permission.token, value);
     }
 
@@ -95,6 +105,7 @@ contract PaymentEscrow is Ownable {
         external
         onlyOperator(permission)
     {
+        // pull funds into this contract
         PERMISSION_MANAGER.spend(permission, value);
 
         bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
@@ -104,19 +115,37 @@ contract PaymentEscrow is Ownable {
 
     /// @notice Return previously-captured tokens to buyer.
     /// @dev Callable by both merchant and operator. Calling operators are assumed to have a way to get paid back by merchants.
-    function refund(SpendPermissionManager.SpendPermission calldata permission, uint160 value) external payable {
+    function refundWithDebt(SpendPermissionManager.SpendPermission calldata permission, uint160 value)
+        external
+        payable
+    {
+        // check sender is operator
         (address merchant, address operator) = decodeExtraData(permission.extraData);
-        if (msg.sender != merchant && msg.sender != operator) revert InvalidRefunder(msg.sender, merchant, operator);
-        _refund(permission, value, msg.sender);
+        if (msg.sender != operator) revert InvalidSender(msg.sender, operator);
+
+        // increase merchant debt
+        _debt[operator][merchant][permission.token] += value;
+        emit DebtAdded(operator, merchant, permission.token, value);
+
+        _refund(permission, value, operator);
     }
 
     /// @notice Return previously-captured tokens to buyer.
     /// @dev Only supports ERC20 tokens. Merchants should call `refund` directly for native token refunds.
-    function refundFromMerchant(SpendPermissionManager.SpendPermission calldata permission, uint160 value)
-        external
-        onlyOperator(permission)
-    {
+    function refundFromMerchant(SpendPermissionManager.SpendPermission calldata permission, uint160 value) external {
+        // check sender is operator
+        (address merchant, address operator) = decodeExtraData(permission.extraData);
+        if (msg.sender != operator) revert InvalidSender(msg.sender, operator);
+
+        _refund(permission, value, merchant);
+    }
+
+    /// @notice Return previously-captured tokens to buyer.
+    function refund(SpendPermissionManager.SpendPermission calldata permission, uint160 value) external payable {
+        // check sender is merchant
         (address merchant,) = decodeExtraData(permission.extraData);
+        if (msg.sender != merchant) revert InvalidSender(msg.sender, merchant);
+
         _refund(permission, value, merchant);
     }
 
@@ -149,18 +178,42 @@ contract PaymentEscrow is Ownable {
     }
 
     /// @notice Transfer funds to payment receipient from this contract.
-    function _capture(bytes32 permissionHash, address operator, address recipient, address token, uint256 value)
+    function _capture(bytes32 permissionHash, address operator, address merchant, address token, uint256 value)
         internal
     {
         _captured[permissionHash] += value;
 
+        // calculate fees and remaining payment value
         uint16 feeBps = _feeBps[operator];
-        if (feeBps > 0) {
-            _transfer(token, _feeRecipient[operator], feeBps * value / 10_000);
-        }
-        _transfer(token, recipient, (10_000 - feeBps) * value / 10_000);
+        uint256 feeAmount = feeBps * value / 10_000;
+        value -= feeAmount;
 
-        emit PaymentCaptured(permissionHash, value);
+        // repay debt if any exists
+        uint256 debt = _debt[operator][merchant][token];
+        if (debt >= value) {
+            // more debt than this payment can cover, repay debt and set payment value to zero
+            _debt[operator][merchant][token] = debt - value;
+            value = 0;
+            emit DebtRepaid(operator, merchant, token, permissionHash, value);
+            _transfer(token, operator, value);
+        } else if (debt != 0) {
+            // non-zero debt, but coverable with remainder of current capture value
+            value -= debt;
+            delete _debt[operator][merchant][token];
+            emit DebtRepaid(operator, merchant, token, permissionHash, debt);
+            _transfer(token, operator, debt);
+        }
+
+        // transfer fee
+        if (feeAmount > 0) {
+            _transfer(token, _feeRecipient[operator], feeAmount);
+        }
+
+        // transfer payment if leftover
+        if (value > 0) {
+            emit PaymentCaptured(permissionHash, value);
+            _transfer(token, merchant, value);
+        }
     }
 
     /// @notice Return previously-captured tokens to buyer.
