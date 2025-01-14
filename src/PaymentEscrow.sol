@@ -29,7 +29,8 @@ contract PaymentEscrow {
     error InvalidSender(address sender, address expected);
     error InvalidRefunder(address sender, address merchant, address operator);
     error RefundExceedsCapture(uint256 refund, uint256 captured);
-    error RefundValueMismatch(uint256 msgValue, uint256 argValue);
+    error NativeTokenValueMismatch(uint256 msgValue, uint256 argValue);
+    error RepaymentExceedsDebt(uint256 repayment, uint256 debt);
     error FeeBpsOverflow(uint16 feeBps);
     error ZeroFeeRecipient();
 
@@ -163,10 +164,26 @@ contract PaymentEscrow {
     /// @notice Partially cancel the debt obligations of a merchant as an operator.
     function cancelDebt(address merchant, address token, uint256 value) external {
         uint256 debt = _debt[msg.sender][merchant][token];
-        if (value > debt) revert();
+        if (value > debt) revert RepaymentExceedsDebt(value, debt);
 
         _debt[msg.sender][merchant][token] = debt - value;
         emit DebtRepaid(msg.sender, merchant, token, value);
+    }
+
+    /// @notice Partially repay the debt obligations of a calling merchant.
+    function repayDebt(address operator, address token, uint256 value) external payable {
+        uint256 debt = _debt[operator][msg.sender][token];
+        if (value > debt) revert RepaymentExceedsDebt(value, debt);
+
+        _debt[msg.sender][merchant][token] = debt - value;
+        emit DebtRepaid(msg.sender, merchant, token, value);
+
+        if (token == NATIVE_TOKEN) {
+            if (msg.value != value) revert NativeTokenValueMismatch(msg.value, value);
+            SafeTransferLib.safeTransferETH(operator, value);
+        } else {
+            SafeTransferLib.safeTransferFrom(token, msg.sender, operator, value);
+        }
     }
 
     /// @notice Update fee take rate and recipient for operator.
@@ -197,7 +214,7 @@ contract PaymentEscrow {
 
         // repay debt if any exists
         uint256 debt = _debt[operator][merchant][token];
-        if (debt >= value) {
+        if (debt > value) {
             // more debt than this payment can cover, repay debt and set payment value to zero
             _debt[operator][merchant][token] = debt - value;
             value = 0;
@@ -231,17 +248,17 @@ contract PaymentEscrow {
         bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
         uint256 captured = _captured[permissionHash];
         if (captured < value) revert RefundExceedsCapture(value, captured);
+
         _captured[permissionHash] = captured - value;
+        emit PaymentRefunded(permissionHash, value);
 
         // return tokens to buyer
         if (permission.token == NATIVE_TOKEN) {
-            if (value != msg.value) revert RefundValueMismatch(msg.value, value);
+            if (value != msg.value) revert NativeTokenValueMismatch(msg.value, value);
             SafeTransferLib.safeTransferETH(permission.account, value);
         } else {
             SafeTransferLib.safeTransferFrom(permission.token, refunder, permission.account, value);
         }
-
-        emit PaymentRefunded(permissionHash, value);
     }
 
     /// @notice Transfer tokens from the escrow to a recipient.
