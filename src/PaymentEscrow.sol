@@ -63,7 +63,6 @@ contract PaymentEscrow {
     error InsufficientEscrow(bytes32 permissionHash, uint256 escrowedValue, uint160 requestedValue);
     error PermissionApprovalFailed();
     error InvalidSender(address sender, address expected);
-    error InvalidRefunder(address sender, address merchant, address operator);
     error RefundExceedsCapture(uint256 refund, uint256 captured);
     error NativeTokenValueMismatch(uint256 msgValue, uint256 argValue);
     error RepaymentExceedsDebt(uint256 repayment, uint256 debt);
@@ -72,7 +71,7 @@ contract PaymentEscrow {
     error ZeroValue();
 
     modifier onlyOperator(SpendPermissionManager.SpendPermission calldata permission) {
-        (, address operator) = decodeExtraData(permission.extraData);
+        (address operator,,,) = decodeExtraData(permission.extraData);
         if (msg.sender != operator) revert InvalidSender(msg.sender, operator);
         _;
     }
@@ -128,7 +127,7 @@ contract PaymentEscrow {
         onlyOperator(permission)
         nonZeroValue(value)
     {
-        (address merchant, address operator, uint16 feeBps, address feeRecipient) =
+        (address operator, address merchant, uint16 feeBps, address feeRecipient) =
             decodeExtraData(permission.extraData);
         bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
 
@@ -198,7 +197,7 @@ contract PaymentEscrow {
         nonZeroValue(value)
     {
         // check sender is merchant
-        (address merchant,) = decodeExtraData(permission.extraData);
+        (, address merchant,,) = decodeExtraData(permission.extraData);
         if (msg.sender != merchant) revert InvalidSender(msg.sender, merchant);
 
         _refund(permission, value, merchant);
@@ -236,7 +235,7 @@ contract PaymentEscrow {
         nonZeroValue(value)
     {
         // check sender is operator
-        (address merchant, address operator) = decodeExtraData(permission.extraData);
+        (address operator, address merchant,,) = decodeExtraData(permission.extraData);
         if (msg.sender != operator) revert InvalidSender(msg.sender, operator);
 
         // increase merchant debt
@@ -283,7 +282,7 @@ contract PaymentEscrow {
     function decodeExtraData(bytes calldata extraData)
         public
         pure
-        returns (address merchant, address operator, uint16 feeBps, address feeRecipient)
+        returns (address operator, address merchant, uint16 feeBps, address feeRecipient)
     {
         return abi.decode(extraData, (address, address, uint16, address));
     }
