@@ -26,9 +26,6 @@ contract PaymentEscrow {
     /// @dev Used to limit amount that can be repaid.
     mapping(address operator => mapping(address merchant => mapping(address token => uint256 value))) internal _debt;
 
-    mapping(address operator => uint16 bps) _feeBps;
-    mapping(address operator => address recipient) _feeRecipient;
-
     /// @notice Payment was authorized, increasing value escrowed.
     ///
     /// @param permissionHash Hash of the SpendPermission used for payment.
@@ -63,8 +60,6 @@ contract PaymentEscrow {
     /// @param value Amount of debt repaid.
     event DebtSettled(address indexed operator, address indexed merchant, address token, uint256 value);
 
-    event FeesUpdated(address indexed operator, uint16 feeBps, address feeRecipient);
-
     error InsufficientEscrow(bytes32 permissionHash, uint256 escrowedValue, uint160 requestedValue);
     error PermissionApprovalFailed();
     error InvalidSender(address sender, address expected);
@@ -74,10 +69,16 @@ contract PaymentEscrow {
     error RepaymentExceedsDebt(uint256 repayment, uint256 debt);
     error FeeBpsOverflow(uint16 feeBps);
     error ZeroFeeRecipient();
+    error ZeroValue();
 
     modifier onlyOperator(SpendPermissionManager.SpendPermission calldata permission) {
         (, address operator) = decodeExtraData(permission.extraData);
         if (msg.sender != operator) revert InvalidSender(msg.sender, operator);
+        _;
+    }
+
+    modifier nonZeroValue(uint256 value) {
+        if (value == 0) revert ZeroValue();
         _;
     }
 
@@ -96,9 +97,17 @@ contract PaymentEscrow {
         SpendPermissionManager.SpendPermission calldata permission,
         uint160 value,
         bytes calldata signature
-    ) external onlyOperator(permission) {
+    ) external onlyOperator(permission) nonZeroValue(value) {
+        // check valid fee config
+        (,, uint16 feeBps, address feeRecipient) = decodeExtraData(permission.extraData);
+        if (feeBps > 10_000) revert FeeBpsOverflow(feeBps);
+        if (feeRecipient == address(0) && feeBps != 0) revert ZeroFeeRecipient();
+
         // pull funds into this contract
-        _preAuthorize(permission, signature);
+        if (signature.length > 0) {
+            bool approved = PERMISSION_MANAGER.approveWithSignature(permission, signature);
+            if (!approved) revert PermissionApprovalFailed();
+        }
         PERMISSION_MANAGER.spend(permission, value);
 
         // increase escrow
@@ -117,8 +126,10 @@ contract PaymentEscrow {
     function capture(SpendPermissionManager.SpendPermission calldata permission, uint160 value)
         external
         onlyOperator(permission)
+        nonZeroValue(value)
     {
-        (address merchant, address operator) = decodeExtraData(permission.extraData);
+        (address merchant, address operator, uint16 feeBps, address feeRecipient) =
+            decodeExtraData(permission.extraData);
         bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
 
         // check sufficient escrow to capture
@@ -130,7 +141,6 @@ contract PaymentEscrow {
         _captured[permissionHash] += value;
 
         // calculate fees and remaining payment value
-        uint16 feeBps = _feeBps[operator];
         uint160 feeAmount = feeBps * value / 10_000;
         value -= feeAmount;
 
@@ -152,7 +162,7 @@ contract PaymentEscrow {
 
         // transfer fee
         if (feeAmount > 0) {
-            _transfer(permission.token, _feeRecipient[operator], feeAmount);
+            _transfer(permission.token, feeRecipient, feeAmount);
         }
 
         // transfer payment if leftover
@@ -177,22 +187,16 @@ contract PaymentEscrow {
     }
 
     /// @notice Return previously-captured tokens to buyer.
-    /// @dev Only supports ERC20 tokens. Merchants should call `refund` directly for native token refunds.
-    function refundFromMerchant(SpendPermissionManager.SpendPermission calldata permission, uint160 value) external {
-        // check sender is operator
-        (address merchant, address operator) = decodeExtraData(permission.extraData);
-        if (msg.sender != operator) revert InvalidSender(msg.sender, operator);
-
-        _refund(permission, value, merchant);
-    }
-
-    /// @notice Return previously-captured tokens to buyer.
     ///
     /// @dev Reverts if not called by merchant.
     ///
     /// @param permission Spend Permission for this payment.
     /// @param value Amount of tokens to move.
-    function refund(SpendPermissionManager.SpendPermission calldata permission, uint160 value) external payable {
+    function refund(SpendPermissionManager.SpendPermission calldata permission, uint160 value)
+        external
+        payable
+        nonZeroValue(value)
+    {
         // check sender is merchant
         (address merchant,) = decodeExtraData(permission.extraData);
         if (msg.sender != merchant) revert InvalidSender(msg.sender, merchant);
@@ -209,6 +213,7 @@ contract PaymentEscrow {
     function refundFromEscrow(SpendPermissionManager.SpendPermission calldata permission, uint160 value)
         external
         onlyOperator(permission)
+        nonZeroValue(value)
     {
         bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
         uint256 escrowedValue = _escrowed[permissionHash];
@@ -228,6 +233,7 @@ contract PaymentEscrow {
     function refundWithDebt(SpendPermissionManager.SpendPermission calldata permission, uint160 value)
         external
         payable
+        nonZeroValue(value)
     {
         // check sender is operator
         (address merchant, address operator) = decodeExtraData(permission.extraData);
@@ -245,7 +251,7 @@ contract PaymentEscrow {
     /// @param operator Operator to repay debt to.
     /// @param token Token to repay debt in.
     /// @param value Amount of debt to repay.
-    function repayDebt(address operator, address token, uint256 value) external payable {
+    function repayDebt(address operator, address token, uint256 value) external payable nonZeroValue(value) {
         uint256 debt = _debt[operator][msg.sender][token];
         if (value > debt) revert RepaymentExceedsDebt(value, debt);
 
@@ -265,7 +271,7 @@ contract PaymentEscrow {
     /// @param merchant Merchant to cancel debt for.
     /// @param token Token used for debt.
     /// @param value Amount of debt to cancel.
-    function cancelDebt(address merchant, address token, uint256 value) external {
+    function cancelDebt(address merchant, address token, uint256 value) external nonZeroValue(value) {
         uint256 debt = _debt[msg.sender][merchant][token];
         if (value > debt) revert RepaymentExceedsDebt(value, debt);
 
@@ -273,27 +279,13 @@ contract PaymentEscrow {
         emit DebtSettled(msg.sender, merchant, token, value);
     }
 
-    /// @notice Update fee take rate and recipient for operator.
-    function updateFees(uint16 newFeeBps, address newFeeRecipient) external {
-        if (newFeeBps > 10_000) revert FeeBpsOverflow(newFeeBps);
-        if (newFeeRecipient == address(0)) revert ZeroFeeRecipient();
-
-        _feeBps[msg.sender] = newFeeBps;
-        _feeRecipient[msg.sender] = newFeeRecipient;
-        emit FeesUpdated(msg.sender, newFeeBps, newFeeRecipient);
-    }
-
     /// @notice Decode `SpendPermission.extraData` into a recipient and operator address.
-    function decodeExtraData(bytes calldata extraData) public pure returns (address merchant, address operator) {
-        return abi.decode(extraData, (address, address));
-    }
-
-    /// @notice Approve a spend permission via signature and enforce its approval status.
-    function _preAuthorize(SpendPermissionManager.SpendPermission calldata permission, bytes calldata signature)
-        internal
+    function decodeExtraData(bytes calldata extraData)
+        public
+        pure
+        returns (address merchant, address operator, uint16 feeBps, address feeRecipient)
     {
-        bool approved = PERMISSION_MANAGER.approveWithSignature(permission, signature);
-        if (!approved) revert PermissionApprovalFailed();
+        return abi.decode(extraData, (address, address, uint16, address));
     }
 
     /// @notice Return previously-captured tokens to buyer.
