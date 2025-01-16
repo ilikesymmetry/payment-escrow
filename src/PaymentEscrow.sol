@@ -21,11 +21,6 @@ contract PaymentEscrow {
     /// @dev Used to limit amount that can be refunded post-capture.
     mapping(bytes32 permissionhash => uint256 value) internal _captured;
 
-    /// @notice Amount of tokens indebted by a merchant to an operator.
-    ///
-    /// @dev Used to limit amount that can be repaid.
-    mapping(address operator => mapping(address merchant => mapping(address token => uint256 value))) internal _debt;
-
     /// @notice Payment was authorized, increasing value escrowed.
     ///
     /// @param permissionHash Hash of the SpendPermission used for payment.
@@ -42,30 +37,14 @@ contract PaymentEscrow {
     ///
     /// @param permissionHash Hash of the SpendPermission used for payment.
     /// @param value Amount of tokens.
-    event PaymentRefunded(bytes32 indexed permissionHash, uint256 value);
-
-    /// @notice Debt extended to merchant.
-    ///
-    /// @param operator Operator to repay debt to.
-    /// @param merchant Merchant indebted to operator.
-    /// @param token Token to repay debt in.
-    /// @param value Amount of debt to repay.
-    event DebtExtended(address indexed operator, address indexed merchant, address token, uint256 value);
-
-    /// @notice Debt settled, whether through repayment, cancellation, or other means.
-    ///
-    /// @param operator Operator to repay debt to.
-    /// @param merchant Merchant indebted to operator.
-    /// @param token Token to repay debt in.
-    /// @param value Amount of debt repaid.
-    event DebtSettled(address indexed operator, address indexed merchant, address token, uint256 value);
+    event PaymentRefunded(bytes32 indexed permissionHash, address indexed sender, uint256 value);
 
     error InsufficientEscrow(bytes32 permissionHash, uint256 escrowedValue, uint160 requestedValue);
     error PermissionApprovalFailed();
     error InvalidSender(address sender, address expected);
+    error InvalidRefundSender(address sender, address operator, address merchant);
     error RefundExceedsCapture(uint256 refund, uint256 captured);
     error NativeTokenValueMismatch(uint256 msgValue, uint256 argValue);
-    error RepaymentExceedsDebt(uint256 repayment, uint256 debt);
     error FeeBpsOverflow(uint16 feeBps);
     error ZeroFeeRecipient();
     error ZeroValue();
@@ -85,7 +64,7 @@ contract PaymentEscrow {
         PERMISSION_MANAGER = spendPermissionManager;
     }
 
-    /// @notice Move funds from buyer to escrow via spend permission.
+    /// @notice Validates buyer signature and moves funds from buyer to escrow.
     ///
     /// @dev Reverts if not called by operator.
     ///
@@ -97,22 +76,25 @@ contract PaymentEscrow {
         uint160 value,
         bytes calldata signature
     ) external onlyOperator(permission) nonZeroValue(value) {
-        // check valid fee config
-        (,, uint16 feeBps, address feeRecipient) = decodeExtraData(permission.extraData);
-        if (feeBps > 10_000) revert FeeBpsOverflow(feeBps);
-        if (feeRecipient == address(0) && feeBps != 0) revert ZeroFeeRecipient();
+        bool approved = PERMISSION_MANAGER.approveWithSignature(permission, signature);
+        if (!approved) revert PermissionApprovalFailed();
 
-        // pull funds into this contract
-        if (signature.length > 0) {
-            bool approved = PERMISSION_MANAGER.approveWithSignature(permission, signature);
-            if (!approved) revert PermissionApprovalFailed();
-        }
-        PERMISSION_MANAGER.spend(permission, value);
+        _authorize(permission, value);
+    }
 
-        // increase escrow
-        bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
-        _escrowed[permissionHash] += value;
-        emit PaymentAuthorized(permissionHash, value);
+    /// @notice Move funds from buyer to escrow via pre-approved SpendPermission.
+    ///
+    /// @dev Reverts if not called by operator.
+    ///
+    /// @param permission Spend Permission for this payment.
+    /// @param value Amount of tokens to move.
+    /// @param signature Signature from buyer or empty bytes.
+    function reauthorize(SpendPermissionManager.SpendPermission calldata permission, uint160 value)
+        external
+        onlyOperator(permission)
+        nonZeroValue(value)
+    {
+        _authorize(permission, value);
     }
 
     /// @notice Move funds from escrow to merchant.
@@ -138,37 +120,17 @@ contract PaymentEscrow {
         // update state
         _escrowed[permissionHash] -= value;
         _captured[permissionHash] += value;
+        emit PaymentCaptured(permissionHash, value);
 
         // calculate fees and remaining payment value
         uint160 feeAmount = feeBps * value / 10_000;
         value -= feeAmount;
 
-        // repay debt if any exists
-        uint256 debt = _debt[operator][merchant][permission.token];
-        if (debt > value) {
-            // more debt than this payment can cover, repay debt and set payment value to zero
-            _debt[operator][merchant][permission.token] = debt - value;
-            value = 0;
-            emit DebtSettled(operator, merchant, permission.token, value);
-            _transfer(permission.token, operator, value);
-        } else if (debt != 0) {
-            // non-zero debt, but coverable with remainder of current capture value
-            value -= uint160(debt);
-            delete _debt[operator][merchant][permission.token];
-            emit DebtSettled(operator, merchant, permission.token, debt);
-            _transfer(permission.token, operator, debt);
-        }
-
         // transfer fee
-        if (feeAmount > 0) {
-            _transfer(permission.token, feeRecipient, feeAmount);
-        }
+        if (feeAmount > 0) _transfer(permission.token, feeRecipient, feeAmount);
 
-        // transfer payment if leftover
-        if (value > 0) {
-            emit PaymentCaptured(permissionHash, value);
-            _transfer(permission.token, merchant, value);
-        }
+        // transfer payment
+        if (value > 0) _transfer(permission.token, merchant, value);
     }
 
     /// @notice Cancel payment by revoking permission and returning escrowed funds.
@@ -197,10 +159,26 @@ contract PaymentEscrow {
         nonZeroValue(value)
     {
         // check sender is merchant
-        (, address merchant,,) = decodeExtraData(permission.extraData);
-        if (msg.sender != merchant) revert InvalidSender(msg.sender, merchant);
+        (address operator, address merchant,,) = decodeExtraData(permission.extraData);
+        if (msg.sender != operator && msg.sender != merchant) {
+            revert InvalidRefundSender(msg.sender, operator, merchant);
+        }
 
-        _refund(permission, value, merchant);
+        // limit refund value to previously captured
+        bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
+        uint256 captured = _captured[permissionHash];
+        if (captured < value) revert RefundExceedsCapture(value, captured);
+
+        _captured[permissionHash] = captured - value;
+        emit PaymentRefunded(permissionHash, msg.sender, value);
+
+        // return tokens to buyer
+        if (permission.token == NATIVE_TOKEN) {
+            if (value != msg.value) revert NativeTokenValueMismatch(msg.value, value);
+            SafeTransferLib.safeTransferETH(permission.account, value);
+        } else {
+            SafeTransferLib.safeTransferFrom(permission.token, refunder, permission.account, value);
+        }
     }
 
     /// @notice Move funds from escrow to buyer.
@@ -222,62 +200,6 @@ contract PaymentEscrow {
         _transfer(permission.token, permission.account, value);
     }
 
-    /// @notice Return previously-captured tokens to buyer as an operator.
-    ///
-    /// @dev Reverts if not called by operator.
-    /// @dev Merchant is indebted to the operator.
-    ///
-    /// @param permission Spend Permission for this payment.
-    /// @param value Amount of tokens to move.
-    function refundWithDebt(SpendPermissionManager.SpendPermission calldata permission, uint160 value)
-        external
-        payable
-        nonZeroValue(value)
-    {
-        // check sender is operator
-        (address operator, address merchant,,) = decodeExtraData(permission.extraData);
-        if (msg.sender != operator) revert InvalidSender(msg.sender, operator);
-
-        // increase merchant debt
-        _debt[operator][merchant][permission.token] += value;
-        emit DebtExtended(operator, merchant, permission.token, value);
-
-        _refund(permission, value, operator);
-    }
-
-    /// @notice Partially repay the debt obligations of a calling merchant.
-    ///
-    /// @param operator Operator to repay debt to.
-    /// @param token Token to repay debt in.
-    /// @param value Amount of debt to repay.
-    function repayDebt(address operator, address token, uint256 value) external payable nonZeroValue(value) {
-        uint256 debt = _debt[operator][msg.sender][token];
-        if (value > debt) revert RepaymentExceedsDebt(value, debt);
-
-        _debt[operator][msg.sender][token] = debt - value;
-        emit DebtSettled(operator, msg.sender, token, value);
-
-        if (token == NATIVE_TOKEN) {
-            if (msg.value != value) revert NativeTokenValueMismatch(msg.value, value);
-            SafeTransferLib.safeTransferETH(operator, value);
-        } else {
-            SafeTransferLib.safeTransferFrom(token, msg.sender, operator, value);
-        }
-    }
-
-    /// @notice Partially cancel the debt obligations of a merchant as an operator.
-    ///
-    /// @param merchant Merchant to cancel debt for.
-    /// @param token Token used for debt.
-    /// @param value Amount of debt to cancel.
-    function cancelDebt(address merchant, address token, uint256 value) external nonZeroValue(value) {
-        uint256 debt = _debt[msg.sender][merchant][token];
-        if (value > debt) revert RepaymentExceedsDebt(value, debt);
-
-        _debt[msg.sender][merchant][token] = debt - value;
-        emit DebtSettled(msg.sender, merchant, token, value);
-    }
-
     /// @notice Decode `SpendPermission.extraData` into a recipient and operator address.
     function decodeExtraData(bytes calldata extraData)
         public
@@ -287,25 +209,20 @@ contract PaymentEscrow {
         return abi.decode(extraData, (address, address, uint16, address));
     }
 
-    /// @notice Return previously-captured tokens to buyer.
-    function _refund(SpendPermissionManager.SpendPermission calldata permission, uint160 value, address refunder)
-        internal
-    {
-        // limit refund value to previously captured
+    /// @notice Authorize payment by moving funds from buyer into escrow.
+    function _authorize(SpendPermissionManager.SpendPermission calldata permission, uint160 value) internal {
+        // check valid fee config
+        (,, uint16 feeBps, address feeRecipient) = decodeExtraData(permission.extraData);
+        if (feeBps > 10_000) revert FeeBpsOverflow(feeBps);
+        if (feeRecipient == address(0) && feeBps != 0) revert ZeroFeeRecipient();
+
+        // pull funds into this contract
+        PERMISSION_MANAGER.spend(permission, value);
+
+        // increase escrow accounting storage
         bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
-        uint256 captured = _captured[permissionHash];
-        if (captured < value) revert RefundExceedsCapture(value, captured);
-
-        _captured[permissionHash] = captured - value;
-        emit PaymentRefunded(permissionHash, value);
-
-        // return tokens to buyer
-        if (permission.token == NATIVE_TOKEN) {
-            if (value != msg.value) revert NativeTokenValueMismatch(msg.value, value);
-            SafeTransferLib.safeTransferETH(permission.account, value);
-        } else {
-            SafeTransferLib.safeTransferFrom(permission.token, refunder, permission.account, value);
-        }
+        _escrowed[permissionHash] += value;
+        emit PaymentAuthorized(permissionHash, value);
     }
 
     /// @notice Transfer tokens from the escrow to a recipient.
