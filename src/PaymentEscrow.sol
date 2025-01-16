@@ -89,7 +89,6 @@ contract PaymentEscrow {
     ///
     /// @param permission Spend Permission for this payment.
     /// @param value Amount of tokens to transfer.
-    /// @param signature Signature from buyer or empty bytes.
     function reauthorize(SpendPermissionManager.SpendPermission calldata permission, uint160 value)
         external
         onlyOperator(permission)
@@ -110,8 +109,7 @@ contract PaymentEscrow {
         onlyOperator(permission)
         nonZeroValue(value)
     {
-        (address operator, address merchant, uint16 feeBps, address feeRecipient) =
-            decodeExtraData(permission.extraData);
+        (, address merchant, uint16 feeBps, address feeRecipient) = decodeExtraData(permission.extraData);
         bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
 
         // check sufficient escrow to capture
@@ -164,7 +162,7 @@ contract PaymentEscrow {
             if (value != msg.value) revert NativeTokenValueMismatch(msg.value, value);
             SafeTransferLib.safeTransferETH(permission.account, value);
         } else {
-            SafeTransferLib.safeTransferFrom(permission.token, refunder, permission.account, value);
+            SafeTransferLib.safeTransferFrom(permission.token, msg.sender, permission.account, value);
         }
     }
 
@@ -213,7 +211,7 @@ contract PaymentEscrow {
         if (escrowedValue == 0) return;
 
         delete _escrowed[permissionHash];
-        emit PaymentRefunded(permissionHash, address(this), value);
+        emit PaymentRefunded(permissionHash, address(this), escrowedValue);
         _transfer(permission.token, permission.account, escrowedValue);
     }
 
