@@ -36,8 +36,9 @@ contract PaymentEscrow {
     /// @notice Payment was refunded to buyer.
     ///
     /// @param permissionHash Hash of the SpendPermission used for payment.
+    /// @param refunder Entity sending tokens for refund.
     /// @param value Amount of tokens.
-    event PaymentRefunded(bytes32 indexed permissionHash, address indexed sender, uint256 value);
+    event PaymentRefunded(bytes32 indexed permissionHash, address indexed refunder, uint256 value);
 
     error InsufficientEscrow(bytes32 permissionHash, uint256 escrowedValue, uint160 requestedValue);
     error PermissionApprovalFailed();
@@ -133,20 +134,6 @@ contract PaymentEscrow {
         if (value > 0) _transfer(permission.token, merchant, value);
     }
 
-    /// @notice Cancel payment by revoking permission and returning escrowed funds.
-    ///
-    /// @param permission Spend Permission for this payment.
-    function void(SpendPermissionManager.SpendPermission calldata permission) external onlyOperator(permission) {
-        PERMISSION_MANAGER.revokeAsSpender(permission);
-
-        bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
-        uint256 escrowedValue = _escrowed[permissionHash];
-        if (escrowedValue == 0) return;
-
-        delete _escrowed[permissionHash];
-        _transfer(permission.token, permission.account, escrowedValue);
-    }
-
     /// @notice Return previously-captured tokens to buyer.
     ///
     /// @dev Reverts if not called by merchant.
@@ -158,7 +145,7 @@ contract PaymentEscrow {
         payable
         nonZeroValue(value)
     {
-        // check sender is merchant
+        // check sender is operator or merchant
         (address operator, address merchant,,) = decodeExtraData(permission.extraData);
         if (msg.sender != operator && msg.sender != merchant) {
             revert InvalidRefundSender(msg.sender, operator, merchant);
@@ -183,21 +170,51 @@ contract PaymentEscrow {
 
     /// @notice Move funds from escrow to buyer.
     ///
-    /// @dev Reverts if not called by operator.
+    /// @dev Reverts if not called by operator or merchant.
     ///
     /// @param permission Spend Permission for this payment.
     /// @param value Amount of tokens to move.
     function refundFromEscrow(SpendPermissionManager.SpendPermission calldata permission, uint160 value)
         external
-        onlyOperator(permission)
         nonZeroValue(value)
     {
+        // check sender is operator or merchant
+        (address operator, address merchant,,) = decodeExtraData(permission.extraData);
+        if (msg.sender != operator && msg.sender != merchant) {
+            revert InvalidRefundSender(msg.sender, operator, merchant);
+        }
+
         bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
         uint256 escrowedValue = _escrowed[permissionHash];
         if (escrowedValue < value) revert InsufficientEscrow(permissionHash, escrowedValue, value);
 
         _escrowed[permissionHash] -= value;
+        emit PaymentRefunded(permissionHash, address(this), value);
         _transfer(permission.token, permission.account, value);
+    }
+
+    /// @notice Cancel payment by revoking permission and refunding all escrowed funds.
+    ///
+    /// @dev Reverts if not called by operator or merchant.
+    ///
+    /// @param permission Spend Permission for this payment.
+    function void(SpendPermissionManager.SpendPermission calldata permission) external onlyOperator(permission) {
+        // check sender is operator or merchant
+        (address operator, address merchant,,) = decodeExtraData(permission.extraData);
+        if (msg.sender != operator && msg.sender != merchant) {
+            revert InvalidRefundSender(msg.sender, operator, merchant);
+        }
+
+        // revoke permission
+        PERMISSION_MANAGER.revokeAsSpender(permission);
+
+        bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
+        uint256 escrowedValue = _escrowed[permissionHash];
+        if (escrowedValue == 0) return;
+
+        delete _escrowed[permissionHash];
+        emit PaymentRefunded(permissionHash, address(this), value);
+        _transfer(permission.token, permission.account, escrowedValue);
     }
 
     /// @notice Decode `SpendPermission.extraData` into a recipient and operator address.
