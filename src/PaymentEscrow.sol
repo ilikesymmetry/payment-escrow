@@ -65,12 +65,12 @@ contract PaymentEscrow {
         PERMISSION_MANAGER = spendPermissionManager;
     }
 
-    /// @notice Validates buyer signature and moves funds from buyer to escrow.
+    /// @notice Validates buyer signature and transfers funds from buyer to escrow.
     ///
     /// @dev Reverts if not called by operator.
     ///
     /// @param permission Spend Permission for this payment.
-    /// @param value Amount of tokens to move.
+    /// @param value Amount of tokens to transfer.
     /// @param signature Signature from buyer or empty bytes.
     function authorize(
         SpendPermissionManager.SpendPermission calldata permission,
@@ -83,12 +83,12 @@ contract PaymentEscrow {
         _authorize(permission, value);
     }
 
-    /// @notice Move funds from buyer to escrow via pre-approved SpendPermission.
+    /// @notice Transfer funds from buyer to escrow via pre-approved SpendPermission.
     ///
     /// @dev Reverts if not called by operator.
     ///
     /// @param permission Spend Permission for this payment.
-    /// @param value Amount of tokens to move.
+    /// @param value Amount of tokens to transfer.
     /// @param signature Signature from buyer or empty bytes.
     function reauthorize(SpendPermissionManager.SpendPermission calldata permission, uint160 value)
         external
@@ -98,13 +98,13 @@ contract PaymentEscrow {
         _authorize(permission, value);
     }
 
-    /// @notice Move funds from escrow to merchant.
+    /// @notice Transfer previously-escrowed funds to merchant.
     ///
     /// @dev Reverts if not called by operator.
     /// @dev Partial capture with custom value parameter and calling multiple times.
     ///
     /// @param permission Spend Permission for this payment.
-    /// @param value Amount of tokens to move.
+    /// @param value Amount of tokens to transfer.
     function capture(SpendPermissionManager.SpendPermission calldata permission, uint160 value)
         external
         onlyOperator(permission)
@@ -136,10 +136,10 @@ contract PaymentEscrow {
 
     /// @notice Return previously-captured tokens to buyer.
     ///
-    /// @dev Reverts if not called by merchant.
+    /// @dev Reverts if not called by operator or merchant.
     ///
     /// @param permission Spend Permission for this payment.
-    /// @param value Amount of tokens to move.
+    /// @param value Amount of tokens to transfer.
     function refund(SpendPermissionManager.SpendPermission calldata permission, uint160 value)
         external
         payable
@@ -168,12 +168,12 @@ contract PaymentEscrow {
         }
     }
 
-    /// @notice Move funds from escrow to buyer.
+    /// @notice Return previously-escrowed funds to buyer.
     ///
     /// @dev Reverts if not called by operator or merchant.
     ///
     /// @param permission Spend Permission for this payment.
-    /// @param value Amount of tokens to move.
+    /// @param value Amount of tokens to transfer.
     function refundFromEscrow(SpendPermissionManager.SpendPermission calldata permission, uint160 value)
         external
         nonZeroValue(value)
