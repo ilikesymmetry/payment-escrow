@@ -65,6 +65,8 @@ contract PaymentEscrow {
         PERMISSION_MANAGER = spendPermissionManager;
     }
 
+    receive() external payable {}
+
     /// @notice Validates buyer signature and transfers funds from buyer to escrow.
     ///
     /// @dev Reverts if not called by operator.
@@ -122,8 +124,8 @@ contract PaymentEscrow {
         emit PaymentCaptured(permissionHash, value);
 
         // calculate fees and remaining payment value
-        uint160 feeAmount = feeBps * value / 10_000;
-        value -= feeAmount;
+        uint256 feeAmount = uint256(value) * feeBps / 10_000;
+        value -= uint160(feeAmount);
 
         // transfer fee
         if (feeAmount > 0) _transfer(permission.token, feeRecipient, feeAmount);
