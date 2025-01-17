@@ -10,19 +10,12 @@ contract AuthorizeTest is PaymentEscrowBase {
         _setUpPaymentEscrow();
     }
 
-    function test_authorize_success_erc20(
-        uint160 value,
-        address operator,
-        address merchant,
-        uint16 feeBps,
-        address feeRecipient
-    ) public {
+    function test_authorize_success_erc20(uint160 value, uint16 feeBps) public {
         vm.assume(value > 0);
-        vm.assume(operator != address(0));
-        vm.assume(merchant != address(0));
-        vm.assume(operator != merchant);
         vm.assume(feeBps <= 10_000);
-        vm.assume(feeRecipient != address(0));
+        address operator = _createReceiver();
+        address merchant = _createReceiver();
+        address feeRecipient = _createReceiver();
 
         SpendPermissionManager.SpendPermission memory permission =
             _createPaymentSpendPermission(address(mockERC20), value, operator, merchant, feeBps, feeRecipient);
@@ -37,19 +30,12 @@ contract AuthorizeTest is PaymentEscrowBase {
         assertEq(mockERC20.balanceOf(address(paymentEscrow)), value);
     }
 
-    function test_authorize_success_native(
-        uint160 value,
-        address operator,
-        address merchant,
-        uint16 feeBps,
-        address feeRecipient
-    ) public {
+    function test_authorize_success_native(uint160 value, uint16 feeBps) public {
         vm.assume(value > 0);
-        vm.assume(operator != address(0));
-        vm.assume(merchant != address(0));
-        vm.assume(operator != merchant);
         vm.assume(feeBps <= 10_000);
-        vm.assume(feeRecipient != address(0));
+        address operator = _createReceiver();
+        address merchant = _createReceiver();
+        address feeRecipient = _createReceiver();
 
         SpendPermissionManager.SpendPermission memory permission =
             _createPaymentSpendPermission(NATIVE_TOKEN, value, operator, merchant, feeBps, feeRecipient);

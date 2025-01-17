@@ -6,6 +6,7 @@ import {SpendPermissionManager} from "spend-permissions/SpendPermissionManager.s
 import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
 import {SpendPermissionManagerBase} from "spend-permissions/../test/base/SpendPermissionManagerBase.sol";
 import {MockERC20} from "solady/../test/utils/mocks/MockERC20.sol";
+import {MockReceiver} from "solady/../test/utils/mocks/MockReceiver.sol";
 
 import {PaymentEscrow} from "../../src/PaymentEscrow.sol";
 
@@ -57,5 +58,9 @@ contract PaymentEscrowBase is SpendPermissionManagerBase {
         bytes memory signature = _sign(ownerPk, replaySafeHash);
         bytes memory wrappedSignature = _applySignatureWrapper(0, signature);
         return wrappedSignature;
+    }
+
+    function _createReceiver() internal returns (address) {
+        return address(new MockReceiver());
     }
 }

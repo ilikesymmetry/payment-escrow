@@ -5,12 +5,12 @@ import {SpendPermissionManager} from "spend-permissions/SpendPermissionManager.s
 
 import {PaymentEscrowBase} from "../../base/PaymentEscrowBase.sol";
 
-contract CaptureTest is PaymentEscrowBase {
+contract RefundTest is PaymentEscrowBase {
     function setUp() public {
         _setUpPaymentEscrow();
     }
 
-    function test_capture_success_erc20(uint160 value, uint16 feeBps) public {
+    function test_refund_success_erc20(uint160 value, uint16 feeBps) public {
         vm.assume(value > 0);
         vm.assume(feeBps <= 10_000);
         address operator = _createReceiver();
@@ -38,9 +38,20 @@ contract CaptureTest is PaymentEscrowBase {
         assertEq(mockERC20.balanceOf(address(paymentEscrow)), 0);
         assertEq(mockERC20.balanceOf(feeRecipient), feeAmount);
         assertEq(mockERC20.balanceOf(merchant), value - feeAmount);
+
+        mockERC20.mint(operator, value);
+        vm.startPrank(operator);
+        mockERC20.approve(address(paymentEscrow), value);
+        paymentEscrow.refund(permission, value);
+
+        assertEq(mockERC20.balanceOf(address(operator)), 0);
+        assertEq(mockERC20.balanceOf(address(account)), value);
+        assertEq(mockERC20.balanceOf(address(paymentEscrow)), 0);
+        assertEq(mockERC20.balanceOf(feeRecipient), feeAmount);
+        assertEq(mockERC20.balanceOf(merchant), value - feeAmount);
     }
 
-    function test_capture_success_native(uint160 value, uint16 feeBps) public {
+    function test_refund_success_native(uint160 value, uint16 feeBps) public {
         vm.assume(value > 0);
         vm.assume(feeBps <= 10_000);
         address operator = _createReceiver();
@@ -65,6 +76,16 @@ contract CaptureTest is PaymentEscrowBase {
         uint256 feeAmount = uint256(value) * feeBps / 10_000;
 
         assertEq(address(account).balance, 0);
+        assertEq(address(paymentEscrow).balance, 0);
+        assertEq(feeRecipient.balance, feeAmount);
+        assertEq(merchant.balance, value - feeAmount);
+
+        vm.deal(operator, value);
+        vm.startPrank(operator);
+        paymentEscrow.refund{value: value}(permission, value);
+
+        assertEq(operator.balance, 0);
+        assertEq(address(account).balance, value);
         assertEq(address(paymentEscrow).balance, 0);
         assertEq(feeRecipient.balance, feeAmount);
         assertEq(merchant.balance, value - feeAmount);
