@@ -2,19 +2,15 @@
 pragma solidity ^0.8.13;
 
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {IPermit2} from "permit2/interfaces/IPermit2.sol";
+import {ISignatureTransfer} from "permit2/interfaces/ISignatureTransfer.sol";
 
 /// @notice Route and escrow payments using Spend Permissions (https://github.com/coinbase/spend-permissions).
 /**
  * permit2 lacks:
  * - signatures are single-use so no incremental auth or subscriptions
- * - allowance storage overrides each other per-spender
- * - allowance storage doesn't support witness
- * - allowance storage doesn't parallelize nonces
- * - allowance permits don't enforce caller so signatures can be reordered and frontrun
  */
 contract PaymentEscrow {
-    IPermit2 public immutable PERMIT2;
+    ISignatureTransfer public immutable PERMIT2;
 
     bytes32 EXTRA_DATA_TYPEHASH =
         keccak256("ExtraData(address operator,address merchant,uint16 feeBps,address feeRecipient)");
@@ -68,19 +64,13 @@ contract PaymentEscrow {
     error ZeroFeeRecipient();
     error ZeroValue();
 
-    modifier onlyOperator(SpendPermissionManager.SpendPermission calldata permission) {
-        (address operator,,,) = decodeExtraData(permission.extraData);
-        if (msg.sender != operator) revert InvalidSender(msg.sender, operator);
-        _;
-    }
-
     modifier nonZeroValue(uint256 value) {
         if (value == 0) revert ZeroValue();
         _;
     }
 
-    constructor(SpendPermissionManager spendPermissionManager) {
-        PERMISSION_MANAGER = spendPermissionManager;
+    constructor(address permit2) {
+        PERMIT2 = ISignatureTransfer(permit2);
     }
 
     receive() external payable {}
@@ -93,8 +83,8 @@ contract PaymentEscrow {
     /// @param signature Signature from buyer or empty bytes.
     function authorize(
         address account,
-        PermitTransferFrom memory permit,
-        ExtraData extraData,
+        ISignatureTransfer.PermitTransferFrom calldata permit,
+        ExtraData calldata extraData,
         uint160 value,
         bytes calldata signature
     ) external nonZeroValue(value) {
@@ -105,7 +95,7 @@ contract PaymentEscrow {
         // pull funds into this contract
         PERMIT2.permitWitnessTransferFrom(
             permit,
-            SignatureTransferDetails({to: address(this), requestedAmount: value}),
+            ISignatureTransfer.SignatureTransferDetails({to: address(this), requestedAmount: value}),
             account,
             getWitness(extraData),
             EXTRA_DATA_TYPESTRING,
@@ -178,7 +168,7 @@ contract PaymentEscrow {
         emit PaymentRefunded(paymentId, msg.sender, value);
 
         // return tokens to buyer
-        if (token == NATIVE_TOKEN) {
+        if (token == address(0)) {
             if (value != msg.value) revert NativeTokenValueMismatch(msg.value, value);
             SafeTransferLib.safeTransferETH(account, value);
         } else {
@@ -190,7 +180,6 @@ contract PaymentEscrow {
     ///
     /// @dev Reverts if not called by operator or merchant.
     ///
-    /// @param permission Spend Permission for this payment.
     /// @param value Amount of tokens to transfer.
     function refundFromEscrow(
         address account,
@@ -216,10 +205,7 @@ contract PaymentEscrow {
     /// @notice Cancel payment by revoking permission and refunding all escrowed funds.
     ///
     /// @dev Reverts if not called by operator or merchant.
-    function void(address account, uint256 nonce, address token, ExtraData calldata extraData)
-        external
-        onlyOperator(permission)
-    {
+    function void(address account, uint256 nonce, address token, ExtraData calldata extraData) external {
         // check sender is operator or merchant
         if (msg.sender != extraData.operator && msg.sender != extraData.merchant) {
             revert InvalidRefundSender(msg.sender, extraData.operator, extraData.merchant);
@@ -237,13 +223,13 @@ contract PaymentEscrow {
     }
 
     /// @notice Hash extraData
-    function getWitness(ExtraData memory extraData) public pure returns (bytes32 witness) {
+    function getWitness(ExtraData memory extraData) public view returns (bytes32 witness) {
         return keccak256(abi.encode(EXTRA_DATA_TYPEHASH, extraData));
     }
 
     /// @notice Transfer tokens from the escrow to a recipient.
     function _transfer(address token, address recipient, uint256 value) internal {
-        if (token == NATIVE_TOKEN) {
+        if (token == address(0)) {
             SafeTransferLib.safeTransferETH(recipient, value);
         } else {
             SafeTransferLib.safeTransfer(token, recipient, value);
