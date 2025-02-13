@@ -21,31 +21,31 @@ contract PaymentEscrow {
 
     /// @notice Amount of tokens escrowed for a specific Spend Permission.
     /// @dev Used to limit amount that can be captured or refunded from escrow.
-    mapping(bytes32 permissionHash => uint256 value) internal _authorized;
+    mapping(bytes32 paymentDetailsHash => uint256 value) internal _authorized;
 
     /// @notice Amount of tokens captured for a specific Spend Permission.
     /// @dev Used to limit amount that can be refunded post-capture.
     mapping(bytes32 permissionhash => uint256 value) internal _captured;
 
     /// @notice Payment charged to buyer and immediately captured.
-    event Charged(bytes32 indexed permissionHash, uint256 value);
+    event Charged(bytes32 indexed paymentDetailsHash, uint256 value);
 
     /// @notice Payment authorized, increasing value escrowed.
-    event AuthorizationIncreased(bytes32 indexed permissionHash, uint256 value);
+    event AuthorizationIncreased(bytes32 indexed paymentDetailsHash, uint256 value);
 
     /// @notice Payment authorization reduced, decreasing value escrowed.
-    event AuthorizationDecreased(bytes32 indexed permissionHash, uint256 value);
+    event AuthorizationDecreased(bytes32 indexed paymentDetailsHash, uint256 value);
 
     /// @notice Payment refunded to buyer, descreasing value escrowed.
-    event Voided(bytes32 indexed permissionHash);
+    event Voided(bytes32 indexed paymentDetailsHash);
 
     /// @notice Payment captured, descreasing value escrowed.
-    event Captured(bytes32 indexed permissionHash, uint256 value);
+    event Captured(bytes32 indexed paymentDetailsHash, uint256 value);
 
     /// @notice Payment refunded to buyer.
-    event Refunded(bytes32 indexed permissionHash, address indexed refunder, uint256 value);
+    event Refunded(bytes32 indexed paymentDetailsHash, address indexed refunder, uint256 value);
 
-    error InsufficientAuthorization(bytes32 permissionHash, uint256 authorizedValue, uint256 requestedValue);
+    error InsufficientAuthorization(bytes32 paymentDetailsHash, uint256 authorizedValue, uint256 requestedValue);
     error ValueLimitExceeded(uint256 value);
     error PermissionApprovalFailed();
     error InvalidSender(address sender, address expected);
@@ -98,8 +98,8 @@ contract PaymentEscrow {
 
         // pull funds into this contract
         PERMISSION_MANAGER.spend(permission, uint160(value));
-        bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
-        emit Charged(permissionHash, value);
+        bytes32 paymentDetailsHash = PERMISSION_MANAGER.getHash(permission);
+        emit Charged(paymentDetailsHash, value);
 
         // calculate fees and remaining payment value
         uint256 feeAmount = uint256(value) * data.feeBps / 10_000;
@@ -155,14 +155,14 @@ contract PaymentEscrow {
     {
         SpendPermissionManager.SpendPermission memory permission =
             abi.decode(paymentDetails, (SpendPermissionManager.SpendPermission));
-        bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
+        bytes32 paymentDetailsHash = PERMISSION_MANAGER.getHash(permission);
 
         // check sufficient authorization
-        uint256 authorizedValue = _authorized[permissionHash];
-        if (authorizedValue < value) revert InsufficientAuthorization(permissionHash, authorizedValue, value);
+        uint256 authorizedValue = _authorized[paymentDetailsHash];
+        if (authorizedValue < value) revert InsufficientAuthorization(paymentDetailsHash, authorizedValue, value);
 
-        _authorized[permissionHash] = authorizedValue - value;
-        emit AuthorizationDecreased(permissionHash, value);
+        _authorized[paymentDetailsHash] = authorizedValue - value;
+        emit AuthorizationDecreased(paymentDetailsHash, value);
         _transfer(permission.token, permission.account, value);
     }
 
@@ -171,18 +171,18 @@ contract PaymentEscrow {
     function void(bytes calldata paymentDetails) external onlyOperator(paymentDetails) {
         SpendPermissionManager.SpendPermission memory permission =
             abi.decode(paymentDetails, (SpendPermissionManager.SpendPermission));
-        bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
+        bytes32 paymentDetailsHash = PERMISSION_MANAGER.getHash(permission);
 
         // revoke permission
         PERMISSION_MANAGER.revokeAsSpender(permission);
 
         // early return if no authorized value
-        uint256 authorizedValue = _authorized[permissionHash];
+        uint256 authorizedValue = _authorized[paymentDetailsHash];
         if (authorizedValue == 0) return;
 
-        delete _authorized[permissionHash];
-        emit AuthorizationDecreased(permissionHash, authorizedValue);
-        emit Voided(permissionHash);
+        delete _authorized[paymentDetailsHash];
+        emit AuthorizationDecreased(paymentDetailsHash, authorizedValue);
+        emit Voided(paymentDetailsHash);
         _transfer(permission.token, permission.account, authorizedValue);
     }
 
@@ -197,16 +197,16 @@ contract PaymentEscrow {
         SpendPermissionManager.SpendPermission memory permission =
             abi.decode(paymentDetails, (SpendPermissionManager.SpendPermission));
         ExtraData memory data = abi.decode(permission.extraData, (ExtraData));
-        bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
+        bytes32 paymentDetailsHash = PERMISSION_MANAGER.getHash(permission);
 
         // check sufficient escrow to capture
-        uint256 authorizedValue = _authorized[permissionHash];
-        if (authorizedValue < value) revert InsufficientAuthorization(permissionHash, authorizedValue, value);
+        uint256 authorizedValue = _authorized[paymentDetailsHash];
+        if (authorizedValue < value) revert InsufficientAuthorization(paymentDetailsHash, authorizedValue, value);
 
         // update state
-        _authorized[permissionHash] = authorizedValue - value;
-        _captured[permissionHash] += value;
-        emit Captured(permissionHash, value);
+        _authorized[paymentDetailsHash] = authorizedValue - value;
+        _captured[paymentDetailsHash] += value;
+        emit Captured(paymentDetailsHash, value);
 
         // calculate fees and remaining payment value
         uint256 feeAmount = uint256(value) * data.feeBps / 10_000;
@@ -232,12 +232,12 @@ contract PaymentEscrow {
         }
 
         // limit refund value to previously captured
-        bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
-        uint256 captured = _captured[permissionHash];
+        bytes32 paymentDetailsHash = PERMISSION_MANAGER.getHash(permission);
+        uint256 captured = _captured[paymentDetailsHash];
         if (captured < value) revert RefundExceedsCapture(value, captured);
 
-        _captured[permissionHash] = captured - value;
-        emit Refunded(permissionHash, msg.sender, value);
+        _captured[paymentDetailsHash] = captured - value;
+        emit Refunded(paymentDetailsHash, msg.sender, value);
 
         // return tokens to buyer
         if (permission.token == NATIVE_TOKEN) {
@@ -257,9 +257,9 @@ contract PaymentEscrow {
         PERMISSION_MANAGER.spend(permission, uint160(value));
 
         // increase escrow accounting storage
-        bytes32 permissionHash = PERMISSION_MANAGER.getHash(permission);
-        _authorized[permissionHash] += value;
-        emit AuthorizationIncreased(permissionHash, value);
+        bytes32 paymentDetailsHash = PERMISSION_MANAGER.getHash(permission);
+        _authorized[paymentDetailsHash] += value;
+        emit AuthorizationIncreased(paymentDetailsHash, value);
     }
 
     /// @notice Transfer tokens from the escrow to a recipient.
