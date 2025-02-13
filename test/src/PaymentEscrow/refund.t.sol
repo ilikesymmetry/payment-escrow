@@ -24,13 +24,13 @@ contract RefundTest is PaymentEscrowBase {
         mockERC20.mint(address(account), value);
 
         vm.prank(operator);
-        paymentEscrow.authorize(permission, value, signature);
+        paymentEscrow.authorize(value, abi.encode(permission), signature);
 
         assertEq(mockERC20.balanceOf(address(account)), 0);
         assertEq(mockERC20.balanceOf(address(paymentEscrow)), value);
 
         vm.prank(operator);
-        paymentEscrow.capture(permission, value);
+        paymentEscrow.capture(value, abi.encode(permission));
 
         uint256 feeAmount = uint256(value) * feeBps / 10_000;
 
@@ -42,7 +42,7 @@ contract RefundTest is PaymentEscrowBase {
         mockERC20.mint(operator, value);
         vm.startPrank(operator);
         mockERC20.approve(address(paymentEscrow), value);
-        paymentEscrow.refund(permission, value);
+        paymentEscrow.refund(value, abi.encode(permission));
 
         assertEq(mockERC20.balanceOf(address(operator)), 0);
         assertEq(mockERC20.balanceOf(address(account)), value);
@@ -65,13 +65,13 @@ contract RefundTest is PaymentEscrowBase {
         vm.deal(address(account), value);
 
         vm.prank(operator);
-        paymentEscrow.authorize(permission, value, signature);
+        paymentEscrow.authorize(value, abi.encode(permission), signature);
 
         assertEq(address(account).balance, 0);
         assertEq(address(paymentEscrow).balance, value);
 
         vm.prank(operator);
-        paymentEscrow.capture(permission, value);
+        paymentEscrow.capture(value, abi.encode(permission));
 
         uint256 feeAmount = uint256(value) * feeBps / 10_000;
 
@@ -82,7 +82,7 @@ contract RefundTest is PaymentEscrowBase {
 
         vm.deal(operator, value);
         vm.startPrank(operator);
-        paymentEscrow.refund{value: value}(permission, value);
+        paymentEscrow.refund{value: value}(value, abi.encode(permission));
 
         assertEq(operator.balance, 0);
         assertEq(address(account).balance, value);

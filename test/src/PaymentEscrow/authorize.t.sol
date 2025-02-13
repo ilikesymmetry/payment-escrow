@@ -24,7 +24,7 @@ contract AuthorizeTest is PaymentEscrowBase {
         mockERC20.mint(address(account), value);
 
         vm.prank(operator);
-        paymentEscrow.authorize(permission, value, signature);
+        paymentEscrow.authorize(value, abi.encode(permission), signature);
 
         assertEq(mockERC20.balanceOf(address(account)), 0);
         assertEq(mockERC20.balanceOf(address(paymentEscrow)), value);
@@ -44,7 +44,7 @@ contract AuthorizeTest is PaymentEscrowBase {
         vm.deal(address(account), value);
 
         vm.prank(operator);
-        paymentEscrow.authorize(permission, value, signature);
+        paymentEscrow.authorize(value, abi.encode(permission), signature);
 
         assertEq(address(account).balance, 0);
         assertEq(address(paymentEscrow).balance, value);
