@@ -5,19 +5,8 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {ISignatureTransfer} from "permit2/interfaces/ISignatureTransfer.sol";
 
 /// @notice Route and escrow payments using Spend Permissions (https://github.com/coinbase/spend-permissions).
-/**
- * permit2 lacks:
- * - signatures are single-use so no incremental auth or subscriptions
- */
 contract PaymentEscrow {
-    ISignatureTransfer public immutable PERMIT2;
-
-    bytes32 EXTRA_DATA_TYPEHASH =
-        keccak256("ExtraData(address operator,address merchant,uint16 feeBps,address feeRecipient)");
-
-    string constant EXTRA_DATA_TYPESTRING =
-        "ExtraData extraData)ExtraData(address operator,address merchant,uint16 feeBps,address feeRecipient)TokenPermissions(address token,uint256 amount)";
-
+    /// @notice ABI-encoded data packed into `SpendPermission.extraData` field.
     struct ExtraData {
         address operator;
         address merchant;
@@ -25,36 +14,42 @@ contract PaymentEscrow {
         address feeRecipient;
     }
 
+    bytes32 public constant EXTRA_DATA_TYPEHASH =
+        keccak256("ExtraData(address operator,address merchant,uint16 feeBps,address feeRecipient)");
+
+    string public constant EXTRA_DATA_TYPESTRING =
+        "ExtraData extraData)ExtraData(address operator,address merchant,uint16 feeBps,address feeRecipient)TokenPermissions(address token,uint256 amount)";
+
+    ISignatureTransfer public immutable PERMIT2;
+
     /// @notice Amount of tokens escrowed for a specific Spend Permission.
-    ///
     /// @dev Used to limit amount that can be captured or refunded from escrow.
-    mapping(bytes32 paymentId => uint256 value) internal _escrowed;
+    mapping(bytes32 paymentDetailsHash => uint256 value) internal _authorized;
 
     /// @notice Amount of tokens captured for a specific Spend Permission.
-    ///
     /// @dev Used to limit amount that can be refunded post-capture.
-    mapping(bytes32 paymentId => uint256 value) internal _captured;
+    mapping(bytes32 permissionhash => uint256 value) internal _captured;
 
-    /// @notice Payment was authorized, increasing value escrowed.
-    ///
-    /// @param permissionHash Hash of the SpendPermission used for payment.
-    /// @param value Amount of tokens.
-    event PaymentAuthorized(bytes32 indexed permissionHash, uint256 value);
+    /// @notice Payment charged to buyer and immediately captured.
+    event Charged(bytes32 indexed paymentDetailsHash, uint256 value);
 
-    /// @notice Payment was captured, descreasing value escrowed.
-    ///
-    /// @param permissionHash Hash of the SpendPermission used for payment.
-    /// @param value Amount of tokens.
-    event PaymentCaptured(bytes32 indexed permissionHash, uint256 value);
+    /// @notice Payment authorized, increasing value escrowed.
+    event AuthorizationIncreased(bytes32 indexed paymentDetailsHash, uint256 value);
 
-    /// @notice Payment was refunded to buyer.
-    ///
-    /// @param permissionHash Hash of the SpendPermission used for payment.
-    /// @param refunder Entity sending tokens for refund.
-    /// @param value Amount of tokens.
-    event PaymentRefunded(bytes32 indexed permissionHash, address indexed refunder, uint256 value);
+    /// @notice Payment authorization reduced, decreasing value escrowed.
+    event AuthorizationDecreased(bytes32 indexed paymentDetailsHash, uint256 value);
 
-    error InsufficientEscrow(bytes32 permissionHash, uint256 escrowedValue, uint160 requestedValue);
+    /// @notice Payment refunded to buyer, descreasing value escrowed.
+    event Voided(bytes32 indexed paymentDetailsHash);
+
+    /// @notice Payment captured, descreasing value escrowed.
+    event Captured(bytes32 indexed paymentDetailsHash, uint256 value);
+
+    /// @notice Payment refunded to buyer.
+    event Refunded(bytes32 indexed paymentDetailsHash, address indexed refunder, uint256 value);
+
+    error InsufficientAuthorization(bytes32 paymentDetailsHash, uint256 authorizedValue, uint256 requestedValue);
+    error ValueLimitExceeded(uint256 value);
     error PermissionApprovalFailed();
     error InvalidSender(address sender, address expected);
     error InvalidRefundSender(address sender, address operator, address merchant);
@@ -63,6 +58,13 @@ contract PaymentEscrow {
     error FeeBpsOverflow(uint16 feeBps);
     error ZeroFeeRecipient();
     error ZeroValue();
+
+    modifier onlyOperator(bytes calldata paymentDetails) {
+        (address account, ISignatureTransfer.PermitTransferFrom memory permit, ExtraData memory data) =
+            abi.decode(paymentDetails, (address, ISignatureTransfer.PermitTransferFrom, ExtraData));
+        if (msg.sender != data.operator) revert InvalidSender(msg.sender, data.operator);
+        _;
+    }
 
     modifier nonZeroValue(uint256 value) {
         if (value == 0) revert ZeroValue();
@@ -73,166 +75,162 @@ contract PaymentEscrow {
         PERMIT2 = ISignatureTransfer(permit2);
     }
 
-    receive() external payable {}
+    function charge(uint256 value, bytes calldata paymentDetails, bytes calldata signature)
+        external
+        onlyOperator(paymentDetails)
+    {
+        (address account, ISignatureTransfer.PermitTransferFrom memory permit, ExtraData memory data) =
+            abi.decode(paymentDetails, (address, ISignatureTransfer.PermitTransferFrom, ExtraData));
 
-    /// @notice Validates buyer signature and transfers funds from buyer to escrow.
-    ///
-    /// @dev Reverts if not called by operator.
-    ///
-    /// @param value Amount of tokens to transfer.
-    /// @param signature Signature from buyer or empty bytes.
-    function authorize(
-        address account,
-        ISignatureTransfer.PermitTransferFrom calldata permit,
-        ExtraData calldata extraData,
-        uint160 value,
-        bytes calldata signature
-    ) external nonZeroValue(value) {
         // check valid fee config
-        if (extraData.feeBps > 10_000) revert FeeBpsOverflow(extraData.feeBps);
-        if (extraData.feeRecipient == address(0) && extraData.feeBps != 0) revert ZeroFeeRecipient();
+        if (data.feeBps > 10_000) revert FeeBpsOverflow(data.feeBps);
+        if (data.feeRecipient == address(0) && data.feeBps != 0) revert ZeroFeeRecipient();
 
         // pull funds into this contract
         PERMIT2.permitWitnessTransferFrom(
             permit,
             ISignatureTransfer.SignatureTransferDetails({to: address(this), requestedAmount: value}),
             account,
-            getWitness(extraData),
+            keccak256(abi.encode(EXTRA_DATA_TYPEHASH, data)),
             EXTRA_DATA_TYPESTRING,
             signature
         );
-
-        bytes32 paymentId =
-            keccak256(abi.encode(block.chainid, account, permit.nonce, permit.permitted.token, extraData));
-
-        // increase escrow accounting storage
-        _escrowed[paymentId] += value;
-        emit PaymentAuthorized(paymentId, value);
-    }
-
-    /// @notice Transfer previously-escrowed funds to merchant.
-    ///
-    /// @dev Reverts if not called by operator.
-    /// @dev Partial capture with custom value parameter and calling multiple times.
-    ///
-    /// @param value Amount of tokens to transfer.
-    function capture(address account, uint256 nonce, address token, ExtraData calldata extraData, uint160 value)
-        external
-        nonZeroValue(value)
-    {
-        if (msg.sender != extraData.operator) revert InvalidSender(msg.sender, extraData.operator);
-
-        bytes32 paymentId = keccak256(abi.encode(block.chainid, account, nonce, token, extraData));
-
-        // check sufficient escrow to capture
-        uint256 escrowedValue = _escrowed[paymentId];
-        if (escrowedValue < value) revert InsufficientEscrow(paymentId, escrowedValue, value);
-
-        // update state
-        _escrowed[paymentId] -= value;
-        _captured[paymentId] += value;
-        emit PaymentCaptured(paymentId, value);
+        bytes32 paymentDetailsHash = keccak256(abi.encode(block.chainid, account, permit.nonce, data));
+        emit Charged(paymentDetailsHash, value);
 
         // calculate fees and remaining payment value
-        uint256 feeAmount = uint256(value) * extraData.feeBps / 10_000;
-        value -= uint160(feeAmount);
+        uint256 feeAmount = uint256(value) * data.feeBps / 10_000;
+        value -= uint256(feeAmount);
 
         // transfer fee
-        if (feeAmount > 0) _transfer(token, extraData.feeRecipient, feeAmount);
+        if (feeAmount > 0) _transfer(permit.permitted.token, data.feeRecipient, feeAmount);
 
         // transfer payment
-        if (value > 0) _transfer(token, extraData.merchant, value);
+        if (value > 0) _transfer(permit.permitted.token, data.merchant, value);
     }
 
-    /// @notice Return previously-captured tokens to buyer.
-    ///
-    /// @dev Reverts if not called by operator or merchant.
-    ///
-    /// @param value Amount of tokens to transfer.
-    function refund(address account, uint256 nonce, address token, ExtraData calldata extraData, uint160 value)
+    /// @notice Validates buyer signature and transfers funds from buyer to escrow.
+    /// @dev Reverts if not called by operator.
+    function authorize(uint256 value, bytes calldata paymentDetails, bytes calldata signature)
         external
-        payable
+        onlyOperator(paymentDetails)
         nonZeroValue(value)
     {
-        // check sender is operator or merchant
-        if (msg.sender != extraData.operator && msg.sender != extraData.merchant) {
-            revert InvalidRefundSender(msg.sender, extraData.operator, extraData.merchant);
-        }
+        (address account, ISignatureTransfer.PermitTransferFrom memory permit, ExtraData memory data) =
+            abi.decode(paymentDetails, (address, ISignatureTransfer.PermitTransferFrom, ExtraData));
 
-        // limit refund value to previously captured
-        bytes32 paymentId = keccak256(abi.encode(block.chainid, account, nonce, token, extraData));
-        uint256 captured = _captured[paymentId];
-        if (captured < value) revert RefundExceedsCapture(value, captured);
+        // check valid fee config
+        if (data.feeBps > 10_000) revert FeeBpsOverflow(data.feeBps);
+        if (data.feeRecipient == address(0) && data.feeBps != 0) revert ZeroFeeRecipient();
 
-        _captured[paymentId] = captured - value;
-        emit PaymentRefunded(paymentId, msg.sender, value);
-
-        // return tokens to buyer
-        if (token == address(0)) {
-            if (value != msg.value) revert NativeTokenValueMismatch(msg.value, value);
-            SafeTransferLib.safeTransferETH(account, value);
-        } else {
-            SafeTransferLib.safeTransferFrom(token, msg.sender, account, value);
-        }
+        // pull funds into this contract
+        PERMIT2.permitWitnessTransferFrom(
+            permit,
+            ISignatureTransfer.SignatureTransferDetails({to: address(this), requestedAmount: value}),
+            account,
+            keccak256(abi.encode(EXTRA_DATA_TYPEHASH, data)),
+            EXTRA_DATA_TYPESTRING,
+            signature
+        );
+        bytes32 paymentDetailsHash = keccak256(abi.encode(block.chainid, account, permit.nonce, data));
+        _authorized[paymentDetailsHash] += value;
+        emit AuthorizationIncreased(paymentDetailsHash, value);
     }
 
     /// @notice Return previously-escrowed funds to buyer.
-    ///
     /// @dev Reverts if not called by operator or merchant.
-    ///
-    /// @param value Amount of tokens to transfer.
-    function refundFromEscrow(
-        address account,
-        uint256 nonce,
-        address token,
-        ExtraData calldata extraData,
-        uint160 value
-    ) external nonZeroValue(value) {
-        // check sender is operator or merchant
-        if (msg.sender != extraData.operator && msg.sender != extraData.merchant) {
-            revert InvalidRefundSender(msg.sender, extraData.operator, extraData.merchant);
-        }
+    function decreaseAuthorization(uint256 value, bytes calldata paymentDetails)
+        external
+        onlyOperator(paymentDetails)
+        nonZeroValue(value)
+    {
+        (address account, ISignatureTransfer.PermitTransferFrom memory permit, ExtraData memory data) =
+            abi.decode(paymentDetails, (address, ISignatureTransfer.PermitTransferFrom, ExtraData));
+        bytes32 paymentDetailsHash = keccak256(abi.encode(block.chainid, account, permit.nonce, data));
 
-        bytes32 paymentId = keccak256(abi.encode(block.chainid, account, nonce, token, extraData));
-        uint256 escrowedValue = _escrowed[paymentId];
-        if (escrowedValue < value) revert InsufficientEscrow(paymentId, escrowedValue, value);
+        // check sufficient authorization
+        uint256 authorizedValue = _authorized[paymentDetailsHash];
+        if (authorizedValue < value) revert InsufficientAuthorization(paymentDetailsHash, authorizedValue, value);
 
-        _escrowed[paymentId] -= value;
-        emit PaymentRefunded(paymentId, address(this), value);
-        _transfer(token, account, value);
+        _authorized[paymentDetailsHash] = authorizedValue - value;
+        emit AuthorizationDecreased(paymentDetailsHash, value);
+        _transfer(permit.permitted.token, account, value);
     }
 
     /// @notice Cancel payment by revoking permission and refunding all escrowed funds.
-    ///
     /// @dev Reverts if not called by operator or merchant.
-    function void(address account, uint256 nonce, address token, ExtraData calldata extraData) external {
-        // check sender is operator or merchant
-        if (msg.sender != extraData.operator && msg.sender != extraData.merchant) {
-            revert InvalidRefundSender(msg.sender, extraData.operator, extraData.merchant);
-        }
+    function void(bytes calldata paymentDetails) external onlyOperator(paymentDetails) {
+        (address account, ISignatureTransfer.PermitTransferFrom memory permit, ExtraData memory data) =
+            abi.decode(paymentDetails, (address, ISignatureTransfer.PermitTransferFrom, ExtraData));
+        bytes32 paymentDetailsHash = keccak256(abi.encode(block.chainid, account, permit.nonce, data));
 
-        // Permit2 does not allow spenders to revoke, must be baked into this contract
+        // early return if no authorized value
+        uint256 authorizedValue = _authorized[paymentDetailsHash];
+        if (authorizedValue == 0) return;
 
-        bytes32 paymentId = keccak256(abi.encode(block.chainid, account, nonce, token, extraData));
-        uint256 escrowedValue = _escrowed[paymentId];
-        if (escrowedValue == 0) return;
-
-        delete _escrowed[paymentId];
-        emit PaymentRefunded(paymentId, address(this), escrowedValue);
-        _transfer(token, account, escrowedValue);
+        delete _authorized[paymentDetailsHash];
+        emit AuthorizationDecreased(paymentDetailsHash, authorizedValue);
+        emit Voided(paymentDetailsHash);
+        _transfer(permit.permitted.token, account, authorizedValue);
     }
 
-    /// @notice Hash extraData
-    function getWitness(ExtraData memory extraData) public view returns (bytes32 witness) {
-        return keccak256(abi.encode(EXTRA_DATA_TYPEHASH, extraData));
+    /// @notice Transfer previously-escrowed funds to merchant.
+    /// @dev Reverts if not called by operator.
+    /// @dev Partial capture with custom value parameter and calling multiple times.
+    function capture(uint256 value, bytes calldata paymentDetails)
+        external
+        onlyOperator(paymentDetails)
+        nonZeroValue(value)
+    {
+        (address account, ISignatureTransfer.PermitTransferFrom memory permit, ExtraData memory data) =
+            abi.decode(paymentDetails, (address, ISignatureTransfer.PermitTransferFrom, ExtraData));
+        bytes32 paymentDetailsHash = keccak256(abi.encode(block.chainid, account, permit.nonce, data));
+
+        // check sufficient escrow to capture
+        uint256 authorizedValue = _authorized[paymentDetailsHash];
+        if (authorizedValue < value) revert InsufficientAuthorization(paymentDetailsHash, authorizedValue, value);
+
+        // update state
+        _authorized[paymentDetailsHash] = authorizedValue - value;
+        _captured[paymentDetailsHash] += value;
+        emit Captured(paymentDetailsHash, value);
+
+        // calculate fees and remaining payment value
+        uint256 feeAmount = uint256(value) * data.feeBps / 10_000;
+        value -= uint256(feeAmount);
+
+        // transfer fee
+        if (feeAmount > 0) _transfer(permit.permitted.token, data.feeRecipient, feeAmount);
+
+        // transfer payment
+        if (value > 0) _transfer(permit.permitted.token, data.merchant, value);
+    }
+
+    /// @notice Return previously-captured tokens to buyer.
+    /// @dev Reverts if not called by operator or merchant.
+    function refund(uint256 value, bytes calldata paymentDetails) external nonZeroValue(value) {
+        (address account, ISignatureTransfer.PermitTransferFrom memory permit, ExtraData memory data) =
+            abi.decode(paymentDetails, (address, ISignatureTransfer.PermitTransferFrom, ExtraData));
+        bytes32 paymentDetailsHash = keccak256(abi.encode(block.chainid, account, permit.nonce, data));
+
+        // check sender is operator or merchant
+        if (msg.sender != data.operator && msg.sender != data.merchant) {
+            revert InvalidRefundSender(msg.sender, data.operator, data.merchant);
+        }
+
+        // limit refund value to previously captured
+        uint256 captured = _captured[paymentDetailsHash];
+        if (captured < value) revert RefundExceedsCapture(value, captured);
+
+        _captured[paymentDetailsHash] = captured - value;
+        emit Refunded(paymentDetailsHash, msg.sender, value);
+
+        // return tokens to buyer
+        SafeTransferLib.safeTransferFrom(permit.permitted.token, msg.sender, account, value);
     }
 
     /// @notice Transfer tokens from the escrow to a recipient.
     function _transfer(address token, address recipient, uint256 value) internal {
-        if (token == address(0)) {
-            SafeTransferLib.safeTransferETH(recipient, value);
-        } else {
-            SafeTransferLib.safeTransfer(token, recipient, value);
-        }
+        SafeTransferLib.safeTransfer(token, recipient, value);
     }
 }
