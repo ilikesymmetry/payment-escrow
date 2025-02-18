@@ -37,10 +37,10 @@ contract PaymentEscrow {
     event AuthorizationDecreased(bytes32 indexed paymentDetailsHash, uint256 value);
 
     /// @notice Payment refunded to buyer, descreasing value escrowed.
-    event Voided(bytes32 indexed paymentDetailsHash);
+    event AuthorizationVoided(bytes32 indexed paymentDetailsHash);
 
     /// @notice Payment captured, descreasing value escrowed.
-    event Captured(bytes32 indexed paymentDetailsHash, uint256 value);
+    event AuthorizationCaptured(bytes32 indexed paymentDetailsHash, uint256 value);
 
     /// @notice Payment refunded to buyer.
     event Refunded(bytes32 indexed paymentDetailsHash, address indexed refunder, uint256 value);
@@ -75,6 +75,7 @@ contract PaymentEscrow {
 
     receive() external payable {}
 
+    /// @notice Transfers funds from buyer to merchant.
     function charge(uint256 value, bytes calldata paymentDetails, bytes calldata signature)
         external
         onlyOperator(paymentDetails)
@@ -114,7 +115,7 @@ contract PaymentEscrow {
 
     /// @notice Validates buyer signature and transfers funds from buyer to escrow.
     /// @dev Reverts if not called by operator.
-    function authorize(uint256 value, bytes calldata paymentDetails, bytes calldata signature)
+    function confirmAuthorization(uint256 value, bytes calldata paymentDetails, bytes calldata signature)
         external
         onlyOperator(paymentDetails)
         nonZeroValue(value)
@@ -168,7 +169,7 @@ contract PaymentEscrow {
 
     /// @notice Cancel payment by revoking permission and refunding all escrowed funds.
     /// @dev Reverts if not called by operator or merchant.
-    function void(bytes calldata paymentDetails) external onlyOperator(paymentDetails) {
+    function voidAuthorization(bytes calldata paymentDetails) external onlyOperator(paymentDetails) {
         SpendPermissionManager.SpendPermission memory permission =
             abi.decode(paymentDetails, (SpendPermissionManager.SpendPermission));
         bytes32 paymentDetailsHash = PERMISSION_MANAGER.getHash(permission);
@@ -182,14 +183,14 @@ contract PaymentEscrow {
 
         delete _authorized[paymentDetailsHash];
         emit AuthorizationDecreased(paymentDetailsHash, authorizedValue);
-        emit Voided(paymentDetailsHash);
+        emit AuthorizationVoided(paymentDetailsHash);
         _transfer(permission.token, permission.account, authorizedValue);
     }
 
     /// @notice Transfer previously-escrowed funds to merchant.
     /// @dev Reverts if not called by operator.
     /// @dev Partial capture with custom value parameter and calling multiple times.
-    function capture(uint256 value, bytes calldata paymentDetails)
+    function captureAuthorization(uint256 value, bytes calldata paymentDetails)
         external
         onlyOperator(paymentDetails)
         nonZeroValue(value)
@@ -206,7 +207,7 @@ contract PaymentEscrow {
         // update state
         _authorized[paymentDetailsHash] = authorizedValue - value;
         _captured[paymentDetailsHash] += value;
-        emit Captured(paymentDetailsHash, value);
+        emit AuthorizationCaptured(paymentDetailsHash, value);
 
         // calculate fees and remaining payment value
         uint256 feeAmount = uint256(value) * data.feeBps / 10_000;
