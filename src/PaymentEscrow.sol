@@ -2,11 +2,14 @@
 pragma solidity ^0.8.13;
 
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-
 import {IERC3009} from "./IERC3009.sol";
-
+import {console2} from "forge-std/console2.sol";
 /// @notice Route and escrow payments using Spend Permissions (https://github.com/coinbase/spend-permissions).
+
 contract PaymentEscrow {
+    /// @notice ERC-7528 native token address
+    address public constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+
     /// @notice Additional data to compliment ERC-3009 base fields
     struct ExtraData {
         uint256 salt;
@@ -64,9 +67,8 @@ contract PaymentEscrow {
     error Unsupported();
 
     modifier onlyOperator(bytes calldata paymentDetails) {
-        SpendPermissionManager.SpendPermission memory permission =
-            abi.decode(paymentDetails, (SpendPermissionManager.SpendPermission));
-        ExtraData memory data = abi.decode(permission.extraData, (ExtraData));
+        Authorization memory auth = abi.decode(paymentDetails, (Authorization));
+        ExtraData memory data = auth.extraData;
         if (msg.sender != data.operator) revert InvalidSender(msg.sender, data.operator);
         _;
     }
@@ -76,40 +78,52 @@ contract PaymentEscrow {
         _;
     }
 
-    constructor(SpendPermissionManager spendPermissionManager) {
-        PERMISSION_MANAGER = spendPermissionManager;
+    receive() external payable {}
+
+    /// @notice Execute ERC3009 receiveWithAuthorization
+    function _executeReceiveWithAuth(Authorization memory auth, uint256 value, bytes32 nonce, bytes memory signature)
+        internal
+    {
+        IERC3009(auth.token).receiveWithAuthorization(
+            auth.from, auth.to, value, auth.validAfter, auth.validBefore, nonce, signature
+        );
     }
 
-    receive() external payable {}
+    /// @notice Validate fee configuration
+    function _validateFees(uint16 feeBps, address feeRecipient) internal pure {
+        if (feeBps > 10_000) revert FeeBpsOverflow(feeBps);
+        if (feeRecipient == address(0) && feeBps != 0) revert ZeroFeeRecipient();
+    }
+
+    /// @notice Calculate and transfer fees
+    function _handleFees(address token, address merchant, address feeRecipient, uint16 feeBps, uint256 value)
+        internal
+        returns (uint256 remainingValue)
+    {
+        uint256 feeAmount = uint256(value) * feeBps / 10_000;
+        remainingValue = value - feeAmount;
+
+        if (feeAmount > 0) _transfer(token, feeRecipient, feeAmount);
+        if (remainingValue > 0) _transfer(token, merchant, remainingValue);
+    }
 
     /// @notice Transfers funds from buyer to merchant.
     function charge(uint256 value, bytes calldata paymentDetails, bytes calldata signature)
         external
         onlyOperator(paymentDetails)
     {
-        Authorization memory auth = abi.decode(paymentDetails);
+        Authorization memory auth = abi.decode(paymentDetails, (Authorization));
         ExtraData memory data = auth.extraData;
 
-        // check valid fee config
-        if (data.feeBps > 10_000) revert FeeBpsOverflow(data.feeBps);
-        if (data.feeRecipient == address(0) && data.feeBps != 0) revert ZeroFeeRecipient();
+        _validateFees(data.feeBps, data.feeRecipient);
 
-        // pull tokens using authorization
         bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
-        IERC3009(auth.token).receiveWithAuthorization(
-            auth.from, auth.to, value, auth.validAfter, auth.validBefore, paymentDetailsHash, signature
-        );
+        console2.log("PaymentEscrow paymentDetailsHash:", uint256(paymentDetailsHash));
+
+        _executeReceiveWithAuth(auth, value, paymentDetailsHash, signature);
         emit Charged(paymentDetailsHash, value);
 
-        // calculate fees and remaining payment value
-        uint256 feeAmount = uint256(value) * data.feeBps / 10_000;
-        value -= uint256(feeAmount);
-
-        // transfer fee
-        if (feeAmount > 0) _transfer(permission.token, data.feeRecipient, feeAmount);
-
-        // transfer payment
-        if (value > 0) _transfer(permission.token, data.merchant, value);
+        _handleFees(auth.token, data.merchant, data.feeRecipient, data.feeBps, value);
     }
 
     /// @notice Validates buyer signature and transfers funds from buyer to escrow.
@@ -119,18 +133,15 @@ contract PaymentEscrow {
         onlyOperator(paymentDetails)
         nonZeroValue(value)
     {
-        Authorization memory auth = abi.decode(paymentDetails);
+        Authorization memory auth = abi.decode(paymentDetails, (Authorization));
         ExtraData memory data = auth.extraData;
 
-        // check valid fee config
-        if (data.feeBps > 10_000) revert FeeBpsOverflow(data.feeBps);
-        if (data.feeRecipient == address(0) && data.feeBps != 0) revert ZeroFeeRecipient();
+        _validateFees(data.feeBps, data.feeRecipient);
 
-        // pull tokens using authorization
         bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
-        IERC3009(auth.token).receiveWithAuthorization(
-            auth.from, auth.to, value, auth.validAfter, auth.validBefore, paymentDetailsHash, signature
-        );
+        _executeReceiveWithAuth(auth, value, paymentDetailsHash, signature);
+
+        _authorized[paymentDetailsHash] += value;
         emit AuthorizationIncreased(paymentDetailsHash, value);
     }
 
@@ -151,7 +162,8 @@ contract PaymentEscrow {
         onlyOperator(paymentDetails)
         nonZeroValue(value)
     {
-        Authorization memory auth = abi.decode(paymentDetails);
+        Authorization memory auth = abi.decode(paymentDetails, (Authorization));
+        ExtraData memory data = auth.extraData;
         bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
 
         // check sufficient authorization
@@ -160,13 +172,14 @@ contract PaymentEscrow {
 
         _authorized[paymentDetailsHash] = authorizedValue - value;
         emit AuthorizationDecreased(paymentDetailsHash, value);
-        _transfer(permission.token, permission.account, value);
+        _transfer(auth.token, data.merchant, value);
     }
 
     /// @notice Cancel payment by revoking permission and refunding all escrowed funds.
     /// @dev Reverts if not called by operator or merchant.
     function voidAuthorization(bytes calldata paymentDetails) external onlyOperator(paymentDetails) {
-        Authorization memory auth = abi.decode(paymentDetails);
+        Authorization memory auth = abi.decode(paymentDetails, (Authorization));
+        ExtraData memory data = auth.extraData;
         bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
 
         // TODO: revoke authorization
@@ -178,7 +191,7 @@ contract PaymentEscrow {
         delete _authorized[paymentDetailsHash];
         emit AuthorizationDecreased(paymentDetailsHash, authorizedValue);
         emit AuthorizationVoided(paymentDetailsHash);
-        _transfer(permission.token, permission.account, authorizedValue);
+        _transfer(auth.token, data.merchant, authorizedValue);
     }
 
     /// @notice Transfer previously-escrowed funds to merchant.
@@ -189,7 +202,7 @@ contract PaymentEscrow {
         onlyOperator(paymentDetails)
         nonZeroValue(value)
     {
-        Authorization memory auth = abi.decode(paymentDetails);
+        Authorization memory auth = abi.decode(paymentDetails, (Authorization));
         ExtraData memory data = auth.extraData;
         bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
 
@@ -207,16 +220,16 @@ contract PaymentEscrow {
         value -= uint256(feeAmount);
 
         // transfer fee
-        if (feeAmount > 0) _transfer(permission.token, data.feeRecipient, feeAmount);
+        if (feeAmount > 0) _transfer(auth.token, data.feeRecipient, feeAmount);
 
         // transfer payment
-        if (value > 0) _transfer(permission.token, data.merchant, value);
+        if (value > 0) _transfer(auth.token, data.merchant, value);
     }
 
     /// @notice Return previously-captured tokens to buyer.
     /// @dev Reverts if not called by operator or merchant.
     function refund(uint256 value, bytes calldata paymentDetails) external payable nonZeroValue(value) {
-        Authorization memory auth = abi.decode(paymentDetails);
+        Authorization memory auth = abi.decode(paymentDetails, (Authorization));
         ExtraData memory data = auth.extraData;
 
         // check sender is operator or merchant
@@ -233,11 +246,11 @@ contract PaymentEscrow {
         emit Refunded(paymentDetailsHash, msg.sender, value);
 
         // return tokens to buyer
-        if (permission.token == NATIVE_TOKEN) {
+        if (auth.token == NATIVE_TOKEN) {
             if (value != msg.value) revert NativeTokenValueMismatch(msg.value, value);
-            SafeTransferLib.safeTransferETH(permission.account, value);
+            SafeTransferLib.safeTransferETH(data.merchant, value);
         } else {
-            SafeTransferLib.safeTransferFrom(permission.token, msg.sender, permission.account, value);
+            SafeTransferLib.safeTransferFrom(auth.token, msg.sender, data.merchant, value);
         }
     }
 
