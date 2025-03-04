@@ -4,6 +4,7 @@ pragma solidity ^0.8.13;
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {IERC3009} from "./IERC3009.sol";
 import {console2} from "forge-std/console2.sol";
+import {PublicERC6492Validator} from "spend-permissions/PublicERC6492Validator.sol";
 /// @notice Route and escrow payments using Spend Permissions (https://github.com/coinbase/spend-permissions).
 
 contract PaymentEscrow {
@@ -65,6 +66,13 @@ contract PaymentEscrow {
     error ZeroFeeRecipient();
     error ZeroValue();
     error Unsupported();
+    error InvalidSignature();
+
+    PublicERC6492Validator public immutable erc6492Validator;
+
+    constructor(address _erc6492Validator) {
+        erc6492Validator = PublicERC6492Validator(_erc6492Validator);
+    }
 
     modifier onlyOperator(bytes calldata paymentDetails) {
         Authorization memory auth = abi.decode(paymentDetails, (Authorization));
@@ -81,11 +89,21 @@ contract PaymentEscrow {
     receive() external payable {}
 
     /// @notice Execute ERC3009 receiveWithAuthorization
-    function _executeReceiveWithAuth(Authorization memory auth, uint256 value, bytes32 nonce, bytes memory signature)
-        internal
-    {
+    function _executeReceiveWithAuth(
+        Authorization memory auth,
+        uint256 value,
+        bytes32 paymentDetailsHash,
+        bytes calldata signature
+    ) internal {
+        // First validate signature, deploying smart wallet if needed
+        if (!erc6492Validator.isValidSignatureNowAllowSideEffects(auth.from, paymentDetailsHash, signature)) {
+            // If 6492 validation fails, we know it's not a valid signature
+            revert InvalidSignature();
+        }
+
+        // If signature is valid (either EOA or smart wallet), execute the transfer
         IERC3009(auth.token).receiveWithAuthorization(
-            auth.from, auth.to, value, auth.validAfter, auth.validBefore, nonce, signature
+            auth.from, auth.to, value, auth.validAfter, auth.validBefore, paymentDetailsHash, signature
         );
     }
 

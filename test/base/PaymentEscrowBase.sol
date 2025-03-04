@@ -3,11 +3,13 @@ pragma solidity ^0.8.13;
 
 import {Test, console2} from "forge-std/Test.sol";
 import {PaymentEscrow} from "../../src/PaymentEscrow.sol";
+import {PublicERC6492Validator} from "spend-permissions/PublicERC6492Validator.sol";
 import {IERC3009} from "../../src/IERC3009.sol";
 import {MockERC3009Token} from "../mocks/MockERC3009Token.sol";
 
 contract PaymentEscrowBase is Test {
     PaymentEscrow public paymentEscrow;
+    PublicERC6492Validator public erc6492Validator;
     MockERC3009Token public token;
 
     address public operator;
@@ -18,7 +20,8 @@ contract PaymentEscrowBase is Test {
     uint256 internal constant BUYER_PK = 0x1234;
 
     function setUp() public virtual {
-        paymentEscrow = new PaymentEscrow();
+        erc6492Validator = new PublicERC6492Validator();
+        paymentEscrow = new PaymentEscrow(address(erc6492Validator));
         token = new MockERC3009Token("Mock USDC", "mUSDC", 6);
 
         operator = makeAddr("operator");
