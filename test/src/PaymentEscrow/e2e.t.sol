@@ -7,7 +7,7 @@ import {PaymentEscrowSmartWalletBase} from "../../base/PaymentEscrowSmartWalletB
 import {console2} from "forge-std/console2.sol";
 
 contract PaymentEscrowE2ETest is PaymentEscrowBase {
-    function test_charge() public {
+    function test_charge_succeeds_withEOA() public {
         uint256 amount = 100e6;
         uint256 validAfter = block.timestamp - 1;
         uint256 validBefore = block.timestamp + 1 days;
@@ -45,11 +45,11 @@ contract PaymentEscrowE2ETest is PaymentEscrowBase {
 }
 
 contract PaymentEscrowSmartWalletE2ETest is PaymentEscrowSmartWalletBase {
-    function test_charge_with_deployed_smart_wallet() public {
+    function test_charge_succeeds_withDeployedSmartWallet() public {
         // Create payment details
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),
-            from: address(smartWalletDeployed), // Use smart wallet address instead of EOA
+            from: address(smartWalletDeployed),
             to: address(paymentEscrow),
             validAfter: block.timestamp - 1,
             validBefore: block.timestamp + 1 days,
@@ -86,32 +86,44 @@ contract PaymentEscrowSmartWalletE2ETest is PaymentEscrowSmartWalletBase {
         assertEq(mockERC3009Token.balanceOf(feeRecipient), feeAmount);
     }
 
-    // function test_charge_with_counterfactual_smart_wallet() public {
-    //     // Create payment details
-    //     (uint256 validAfter, uint256 validBefore) = _getValidTimeRange();
-    //     bytes memory paymentDetails = _createSmartWalletPaymentDetails(100e6, validAfter, validBefore, bytes32(0));
-    //     bytes32 nonce = keccak256(paymentDetails); // Use paymentDetailsHash as nonce
-    //     console2.log("Payment details hash e2e:", uint256(keccak256(paymentDetails)));
+    function test_charge_succeeds_withCounterfactualSmartWallet() public {
+        // Create payment details
+        PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
+            token: address(mockERC3009Token),
+            from: address(smartWalletCounterfactual),
+            to: address(paymentEscrow),
+            validAfter: block.timestamp - 1,
+            validBefore: block.timestamp + 1 days,
+            extraData: PaymentEscrow.ExtraData({
+                salt: uint256(0),
+                operator: operator,
+                merchant: merchant,
+                feeBps: FEE_BPS,
+                feeRecipient: feeRecipient
+            })
+        });
+        bytes memory paymentDetails = abi.encode(auth);
+        bytes32 nonce = keccak256(paymentDetails); // Use paymentDetailsHash as nonce
+        console2.log("Payment details hash e2e:", uint256(keccak256(paymentDetails)));
 
-    //     // Create signature
-    //     bytes memory signature = _signSmartWalletERC3009_ERC6492(
-    //         smartWalletCounterfactual,
-    //         address(paymentEscrow),
-    //         100e6,
-    //         validAfter,
-    //         validBefore,
-    //         nonce,
-    //         COUNTERFACTUAL_WALLET_OWNER_PK,
-    //         0
-    //     );
+        // Create signature
+        bytes memory signature = _signSmartWalletERC3009WithERC6492(
+            address(smartWalletCounterfactual),
+            address(paymentEscrow),
+            100e6,
+            auth.validAfter,
+            auth.validBefore,
+            COUNTERFACTUAL_WALLET_OWNER_PK,
+            0
+        );
 
-    //     // Submit charge
-    //     vm.prank(operator);
-    //     uint256 amount = 100e6;
-    //     paymentEscrow.charge(amount, paymentDetails, signature);
+        // Submit charge
+        vm.prank(operator);
+        uint256 amount = 100e6;
+        paymentEscrow.charge(amount, paymentDetails, signature);
 
-    //     uint256 feeAmount = amount * FEE_BPS / 10_000;
-    //     assertEq(mockERC3009Token.balanceOf(merchant), amount - feeAmount);
-    //     assertEq(mockERC3009Token.balanceOf(feeRecipient), feeAmount);
-    // }
+        uint256 feeAmount = amount * FEE_BPS / 10_000;
+        assertEq(mockERC3009Token.balanceOf(merchant), amount - feeAmount);
+        assertEq(mockERC3009Token.balanceOf(feeRecipient), feeAmount);
+    }
 }

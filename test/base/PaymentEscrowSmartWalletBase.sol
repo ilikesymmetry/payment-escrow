@@ -139,4 +139,27 @@ contract PaymentEscrowSmartWalletBase is PaymentEscrowBase {
         });
         return abi.encode(auth);
     }
+
+    function _signSmartWalletERC3009WithERC6492(
+        address from,
+        address to,
+        uint256 value,
+        uint256 validAfter,
+        uint256 validBefore,
+        uint256 ownerPk,
+        uint256 ownerIndex
+    ) internal view returns (bytes memory) {
+        // First get the normal smart wallet signature
+        bytes memory signature = _signSmartWalletERC3009(from, to, value, validAfter, validBefore, ownerPk, ownerIndex);
+
+        // Prepare the factory call data
+        bytes[] memory allInitialOwners = new bytes[](1);
+        allInitialOwners[0] = abi.encode(vm.addr(ownerPk));
+        bytes memory factoryCallData =
+            abi.encodeCall(CoinbaseSmartWalletFactory.createAccount, (allInitialOwners, ownerIndex));
+
+        // Then wrap it in ERC6492 format
+        bytes memory eip6492Signature = abi.encode(address(smartWalletFactory), factoryCallData, signature);
+        return abi.encodePacked(eip6492Signature, EIP6492_MAGIC_VALUE);
+    }
 }

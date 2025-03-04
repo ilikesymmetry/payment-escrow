@@ -10,8 +10,9 @@ import {PublicERC6492Validator} from "spend-permissions/PublicERC6492Validator.s
 contract PaymentEscrow {
     /// @notice ERC-7528 native token address
     address public constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
-
+    bytes32 public constant ERC6492_MAGIC_VALUE = 0x6492649264926492649264926492649264926492649264926492649264926492;
     /// @notice Additional data to compliment ERC-3009 base fields
+
     struct ExtraData {
         uint256 salt;
         address operator;
@@ -101,9 +102,16 @@ contract PaymentEscrow {
             bool isValid
         ) {} catch {}
         console2.log("skipping ERC6492 stuff");
+
+        // If it's an ERC6492 signature, unwrap it to get the inner signature
+        bytes memory innerSignature = signature;
+        if (signature.length >= 32 && bytes32(signature[signature.length - 32:]) == ERC6492_MAGIC_VALUE) {
+            (,, innerSignature) = abi.decode(signature[0:signature.length - 32], (address, bytes, bytes));
+        }
+
         // If signature is valid (either EOA or smart wallet), execute the transfer
         IERC3009(auth.token).receiveWithAuthorization(
-            auth.from, auth.to, value, auth.validAfter, auth.validBefore, paymentDetailsHash, signature
+            auth.from, address(this), value, auth.validAfter, auth.validBefore, paymentDetailsHash, innerSignature
         );
     }
 
