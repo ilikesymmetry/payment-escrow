@@ -28,14 +28,8 @@ contract MagicSpendHook {
     error SpendValueWithdrawAmountMismatch(uint256 spendValue, uint256 withdrawAmount);
     error InvalidWithdrawRequestNonce(uint128 noncePostfix, uint128 permissionHashPostfix);
 
-    /// @notice The account is not the current account being processed in PaymentEscrow
-    error InvalidAccount();
-
-    /// @notice The hash is not the current payment details hash being processed in PaymentEscrow
-    error InvalidHash();
-
-    /// @notice The signature is not valid
-    error InvalidSignature();
+    // /// @notice The hash is not the current payment details hash being processed in PaymentEscrow
+    // error InvalidHash();
 
     /// @notice Constructor to set the PaymentEscrow contract address
     /// @param _paymentEscrow Address of the PaymentEscrow contract
@@ -75,6 +69,8 @@ contract MagicSpendHook {
         address currentToken = paymentEscrow.getCurrentToken();
         uint256 currentValue = paymentEscrow.getCurrentValue();
         address currentAccount = paymentEscrow.getCurrentBuyer();
+        bytes32 paymentDetailsHash = paymentEscrow.getCurrentDetailsHash();
+
         // check spend token and withdraw asset are the same
         if (currentToken != withdrawRequest.asset) {
             revert SpendTokenWithdrawAssetMismatch(currentToken, withdrawRequest.asset);
@@ -91,7 +87,6 @@ contract MagicSpendHook {
         }
 
         // check withdraw request nonce postfix matches payment details hash postfix.
-        bytes32 paymentDetailsHash = paymentEscrow.getCurrentDetailsHash();
         if (uint128(withdrawRequest.nonce) != uint128(uint256(paymentDetailsHash))) {
             revert InvalidWithdrawRequestNonce(uint128(withdrawRequest.nonce), uint128(uint256(paymentDetailsHash)));
         }
