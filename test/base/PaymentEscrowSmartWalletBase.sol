@@ -2,7 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {PaymentEscrowBase} from "./PaymentEscrowBase.sol";
-import {Test, console2} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 
 import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
 import {CoinbaseSmartWalletFactory} from "smart-wallet/CoinbaseSmartWalletFactory.sol";
@@ -82,7 +82,6 @@ contract PaymentEscrowSmartWalletBase is PaymentEscrowBase {
 
         // This is what needs to be signed by the smart wallet
         bytes32 erc3009Digest = _getERC3009Digest(from, to, value, validAfter, validBefore, nonce);
-        console2.log("ERC3009 digest:", uint256(erc3009Digest));
 
         // Now wrap the ERC3009 digest in the smart wallet's domain
         bytes32 domainSeparator = keccak256(

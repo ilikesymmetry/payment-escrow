@@ -3,7 +3,6 @@ pragma solidity ^0.8.13;
 
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {IERC3009} from "./IERC3009.sol";
-import {console2} from "forge-std/console2.sol";
 import {PublicERC6492Validator} from "spend-permissions/PublicERC6492Validator.sol";
 
 /// @notice Route and escrow payments using Spend Permissions (https://github.com/coinbase/spend-permissions).
@@ -96,12 +95,12 @@ contract PaymentEscrow {
         bytes32 paymentDetailsHash,
         bytes calldata signature
     ) internal {
-        // First validate signature, deploying smart wallet if needed
-        console2.log("About to validate signature for hash:", uint256(paymentDetailsHash));
+        // Deploy smart wallet if needed. This version of PublicERC6492Validator does not include the final ecrecover
+        // check, so will revert if validating an EOA signature. Hence the try-catch.
+        // A possible TODO: Create new version of PublicERC6492Validator on Solady v0.1.0 that does include the final ecrecover.
         try erc6492Validator.isValidSignatureNowAllowSideEffects(auth.from, paymentDetailsHash, signature) returns (
             bool isValid
         ) {} catch {}
-        console2.log("skipping ERC6492 stuff");
 
         // If it's an ERC6492 signature, unwrap it to get the inner signature
         bytes memory innerSignature = signature;
@@ -109,7 +108,6 @@ contract PaymentEscrow {
             (,, innerSignature) = abi.decode(signature[0:signature.length - 32], (address, bytes, bytes));
         }
 
-        // If signature is valid (either EOA or smart wallet), execute the transfer
         IERC3009(auth.token).receiveWithAuthorization(
             auth.from, address(this), value, auth.validAfter, auth.validBefore, paymentDetailsHash, innerSignature
         );
@@ -144,7 +142,6 @@ contract PaymentEscrow {
         _validateFees(data.feeBps, data.feeRecipient);
 
         bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
-        console2.log("PaymentEscrow paymentDetailsHash:", uint256(paymentDetailsHash));
 
         _executeReceiveWithAuth(auth, value, paymentDetailsHash, signature);
         emit Charged(paymentDetailsHash, value);

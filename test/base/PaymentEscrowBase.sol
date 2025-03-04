@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import {Test, console2} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {PaymentEscrow} from "../../src/PaymentEscrow.sol";
 import {PublicERC6492Validator} from "spend-permissions/PublicERC6492Validator.sol";
 import {IERC3009} from "../../src/IERC3009.sol";
@@ -41,13 +41,6 @@ contract PaymentEscrowBase is Test {
         bytes32 nonce,
         uint256 signerPk
     ) internal view returns (bytes memory) {
-        console2.log("From:", from);
-        console2.log("To:", to);
-        console2.log("Value:", value);
-        console2.log("ValidAfter:", validAfter);
-        console2.log("ValidBefore:", validBefore);
-        console2.log("Nonce:", uint256(nonce));
-
         bytes32 structHash = keccak256(
             abi.encode(
                 mockERC3009Token.RECEIVE_WITH_AUTHORIZATION_TYPEHASH(), from, to, value, validAfter, validBefore, nonce
@@ -55,11 +48,6 @@ contract PaymentEscrowBase is Test {
         );
 
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", mockERC3009Token.DOMAIN_SEPARATOR(), structHash));
-
-        // Add debug logs
-        console2.log("Signing digest:", uint256(digest));
-        console2.log("Domain separator:", uint256(mockERC3009Token.DOMAIN_SEPARATOR()));
-        console2.log("Struct hash:", uint256(structHash));
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerPk, digest);
         return abi.encodePacked(r, s, v);

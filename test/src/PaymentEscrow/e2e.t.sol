@@ -4,7 +4,6 @@ pragma solidity ^0.8.13;
 import {PaymentEscrow} from "../../../src/PaymentEscrow.sol";
 import {PaymentEscrowBase} from "../../base/PaymentEscrowBase.sol";
 import {PaymentEscrowSmartWalletBase} from "../../base/PaymentEscrowSmartWalletBase.sol";
-import {console2} from "forge-std/console2.sol";
 
 contract PaymentEscrowE2ETest is PaymentEscrowBase {
     function test_charge_succeeds_withEOA() public {
@@ -30,7 +29,6 @@ contract PaymentEscrowE2ETest is PaymentEscrowBase {
 
         bytes memory paymentDetails = abi.encode(auth);
         bytes32 nonce = keccak256(paymentDetails); // Use paymentDetailsHash as nonce
-        console2.log("Test nonce:", uint256(nonce));
 
         bytes memory signature =
             _signERC3009(buyerEOA, address(paymentEscrow), amount, validAfter, validBefore, nonce, BUYER_EOA_PK);
@@ -63,7 +61,6 @@ contract PaymentEscrowSmartWalletE2ETest is PaymentEscrowSmartWalletBase {
         });
         bytes memory paymentDetails = abi.encode(auth);
         bytes32 nonce = keccak256(paymentDetails); // Use paymentDetailsHash as nonce
-        console2.log("Payment details hash e2e:", uint256(keccak256(paymentDetails)));
 
         // Create signature
         bytes memory signature = _signSmartWalletERC3009(
@@ -104,7 +101,6 @@ contract PaymentEscrowSmartWalletE2ETest is PaymentEscrowSmartWalletBase {
         });
         bytes memory paymentDetails = abi.encode(auth);
         bytes32 nonce = keccak256(paymentDetails); // Use paymentDetailsHash as nonce
-        console2.log("Payment details hash e2e:", uint256(keccak256(paymentDetails)));
 
         // Create signature
         bytes memory signature = _signSmartWalletERC3009WithERC6492(

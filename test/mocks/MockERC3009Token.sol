@@ -4,7 +4,6 @@ pragma solidity ^0.8.13;
 import {ERC20} from "solady/tokens/ERC20.sol";
 import {IERC3009} from "../../src/IERC3009.sol";
 import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
-import {console2} from "forge-std/console2.sol";
 
 contract MockERC3009Token is ERC20, IERC3009 {
     // Same constants as USDC implementation
@@ -46,35 +45,15 @@ contract MockERC3009Token is ERC20, IERC3009 {
         bytes32 nonce,
         bytes memory signature
     ) external {
-        console2.log("MockERC3009Token.receiveWithAuthorization called with:");
-        console2.log("  from:", from);
-        console2.log("  to:", to);
-        console2.log("  value:", value);
-        console2.log("  validAfter:", validAfter);
-        console2.log("  validBefore:", validBefore);
-        console2.log("  nonce:", uint256(nonce));
-
         require(to == msg.sender, "MockERC3009: caller must be the payee");
         require(!_authorizationStates[from][nonce], "MockERC3009: authorization is used");
         require(block.timestamp > validAfter, "MockERC3009: authorization not yet valid");
         require(block.timestamp < validBefore, "MockERC3009: authorization expired");
 
-        console2.log("From:", from);
-        console2.log("To:", to);
-        console2.log("Value:", value);
-        console2.log("ValidAfter:", validAfter);
-        console2.log("ValidBefore:", validBefore);
-        console2.log("Nonce:", uint256(nonce));
-
-        console2.log("MockERC3009Token.receiveWithAuthorization called with nonce:", uint256(nonce));
-        console2.log("Computing struct hash with typehash:", uint256(RECEIVE_WITH_AUTHORIZATION_TYPEHASH));
         bytes32 structHash =
             keccak256(abi.encode(RECEIVE_WITH_AUTHORIZATION_TYPEHASH, from, to, value, validAfter, validBefore, nonce));
-        console2.log("Computed struct hash:", uint256(structHash));
 
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR(), structHash));
-
-        console2.log("MockERC3009Token computed digest:", uint256(digest));
 
         require(SignatureCheckerLib.isValidSignatureNow(from, digest, signature), "MockERC3009: invalid signature");
 
