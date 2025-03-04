@@ -5,13 +5,10 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {IERC3009} from "./IERC3009.sol";
 import {PublicERC6492Validator} from "spend-permissions/PublicERC6492Validator.sol";
 
-/// @notice Route and escrow payments using Spend Permissions (https://github.com/coinbase/spend-permissions).
+/// @notice Route and escrow payments using ERC-3009 authorizations.
+/// TODO: do we need to enforce a singular acceptable token address? (USDC)
 contract PaymentEscrow {
-    /// @notice ERC-7528 native token address
-    address public constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
-    bytes32 public constant ERC6492_MAGIC_VALUE = 0x6492649264926492649264926492649264926492649264926492649264926492;
     /// @notice Additional data to compliment ERC-3009 base fields
-
     struct ExtraData {
         uint256 salt;
         address operator;
@@ -20,6 +17,7 @@ contract PaymentEscrow {
         address feeRecipient;
     }
 
+    /// @notice ERC-3009 authorization
     struct Authorization {
         address token;
         address from;
@@ -29,13 +27,19 @@ contract PaymentEscrow {
         ExtraData extraData;
     }
 
-    /// @notice Amount of tokens escrowed for a specific Spend Permission.
+    /// @notice ERC-6492 magic value
+    bytes32 public constant ERC6492_MAGIC_VALUE = 0x6492649264926492649264926492649264926492649264926492649264926492;
+
+    /// @notice ERC-6492 validator
+    PublicERC6492Validator public immutable erc6492Validator;
+
+    /// @notice Amount of tokens escrowed for a specific 3009 authorization.
     /// @dev Used to limit amount that can be captured or refunded from escrow.
     mapping(bytes32 paymentDetailsHash => uint256 value) internal _authorized;
 
-    /// @notice Amount of tokens captured for a specific Spend Permission.
+    /// @notice Amount of tokens captured for a specific 3009 authorization.
     /// @dev Used to limit amount that can be refunded post-capture.
-    mapping(bytes32 permissionhash => uint256 value) internal _captured;
+    mapping(bytes32 paymentDetailsHash => uint256 value) internal _captured;
 
     /// @notice Payment charged to buyer and immediately captured.
     event Charged(bytes32 indexed paymentDetailsHash, uint256 value);
@@ -61,14 +65,11 @@ contract PaymentEscrow {
     error InvalidSender(address sender, address expected);
     error InvalidRefundSender(address sender, address operator, address merchant);
     error RefundExceedsCapture(uint256 refund, uint256 captured);
-    error NativeTokenValueMismatch(uint256 msgValue, uint256 argValue);
     error FeeBpsOverflow(uint16 feeBps);
     error ZeroFeeRecipient();
     error ZeroValue();
     error Unsupported();
     error InvalidSignature();
-
-    PublicERC6492Validator public immutable erc6492Validator;
 
     constructor(address _erc6492Validator) {
         erc6492Validator = PublicERC6492Validator(_erc6492Validator);
@@ -87,49 +88,6 @@ contract PaymentEscrow {
     }
 
     receive() external payable {}
-
-    /// @notice Execute ERC3009 receiveWithAuthorization
-    function _executeReceiveWithAuth(
-        Authorization memory auth,
-        uint256 value,
-        bytes32 paymentDetailsHash,
-        bytes calldata signature
-    ) internal {
-        // Deploy smart wallet if needed. This version of PublicERC6492Validator does not include the final ecrecover
-        // check, so will revert if validating an EOA signature. Hence the try-catch.
-        // A possible TODO: Create new version of PublicERC6492Validator on Solady v0.1.0 that does include the final ecrecover.
-        try erc6492Validator.isValidSignatureNowAllowSideEffects(auth.from, paymentDetailsHash, signature) returns (
-            bool isValid
-        ) {} catch {}
-
-        // If it's an ERC6492 signature, unwrap it to get the inner signature
-        bytes memory innerSignature = signature;
-        if (signature.length >= 32 && bytes32(signature[signature.length - 32:]) == ERC6492_MAGIC_VALUE) {
-            (,, innerSignature) = abi.decode(signature[0:signature.length - 32], (address, bytes, bytes));
-        }
-
-        IERC3009(auth.token).receiveWithAuthorization(
-            auth.from, address(this), value, auth.validAfter, auth.validBefore, paymentDetailsHash, innerSignature
-        );
-    }
-
-    /// @notice Validate fee configuration
-    function _validateFees(uint16 feeBps, address feeRecipient) internal pure {
-        if (feeBps > 10_000) revert FeeBpsOverflow(feeBps);
-        if (feeRecipient == address(0) && feeBps != 0) revert ZeroFeeRecipient();
-    }
-
-    /// @notice Calculate and transfer fees
-    function _handleFees(address token, address merchant, address feeRecipient, uint16 feeBps, uint256 value)
-        internal
-        returns (uint256 remainingValue)
-    {
-        uint256 feeAmount = uint256(value) * feeBps / 10_000;
-        remainingValue = value - feeAmount;
-
-        if (feeAmount > 0) _transfer(token, feeRecipient, feeAmount);
-        if (remainingValue > 0) _transfer(token, merchant, remainingValue);
-    }
 
     /// @notice Transfers funds from buyer to merchant.
     function charge(uint256 value, bytes calldata paymentDetails, bytes calldata signature)
@@ -175,7 +133,7 @@ contract PaymentEscrow {
         onlyOperator(paymentDetails)
         nonZeroValue(value)
     {
-        revert Unsupported();
+        revert Unsupported(); // TODO: pretty sure we can implement this?
     }
 
     /// @notice Return previously-escrowed funds to buyer.
@@ -198,7 +156,7 @@ contract PaymentEscrow {
         _transfer(auth.token, data.merchant, value);
     }
 
-    /// @notice Cancel payment by revoking permission and refunding all escrowed funds.
+    /// @notice Cancel payment by revoking authorization and refunding all escrowed funds.
     /// @dev Reverts if not called by operator or merchant.
     function voidAuthorization(bytes calldata paymentDetails) external onlyOperator(paymentDetails) {
         Authorization memory auth = abi.decode(paymentDetails, (Authorization));
@@ -214,7 +172,7 @@ contract PaymentEscrow {
         delete _authorized[paymentDetailsHash];
         emit AuthorizationDecreased(paymentDetailsHash, authorizedValue);
         emit AuthorizationVoided(paymentDetailsHash);
-        _transfer(auth.token, data.merchant, authorizedValue);
+        _transfer(auth.token, data.merchant, authorizedValue); // TODO: shouldn't the recipient be the buyer?
     }
 
     /// @notice Transfer previously-escrowed funds to merchant.
@@ -269,20 +227,54 @@ contract PaymentEscrow {
         emit Refunded(paymentDetailsHash, msg.sender, value);
 
         // return tokens to buyer
-        if (auth.token == NATIVE_TOKEN) {
-            if (value != msg.value) revert NativeTokenValueMismatch(msg.value, value);
-            SafeTransferLib.safeTransferETH(data.merchant, value);
-        } else {
-            SafeTransferLib.safeTransferFrom(auth.token, msg.sender, data.merchant, value);
+        SafeTransferLib.safeTransferFrom(auth.token, msg.sender, data.merchant, value);
+    }
+
+    /// @notice Execute ERC3009 receiveWithAuthorization
+    function _executeReceiveWithAuth(
+        Authorization memory auth,
+        uint256 value,
+        bytes32 paymentDetailsHash,
+        bytes calldata signature
+    ) internal {
+        // Deploy smart wallet if needed. This version of PublicERC6492Validator does not include the final ecrecover
+        // check, so will revert if validating an EOA signature. Hence the try-catch.
+        // A possible TODO: Create new version of PublicERC6492Validator on Solady v0.1.0 that does include the final ecrecover.
+        try erc6492Validator.isValidSignatureNowAllowSideEffects(auth.from, paymentDetailsHash, signature) returns (
+            bool isValid
+        ) {} catch {}
+
+        // If it's an ERC6492 signature, unwrap it to get the inner signature
+        bytes memory innerSignature = signature;
+        if (signature.length >= 32 && bytes32(signature[signature.length - 32:]) == ERC6492_MAGIC_VALUE) {
+            (,, innerSignature) = abi.decode(signature[0:signature.length - 32], (address, bytes, bytes));
         }
+
+        IERC3009(auth.token).receiveWithAuthorization(
+            auth.from, address(this), value, auth.validAfter, auth.validBefore, paymentDetailsHash, innerSignature
+        );
+    }
+
+    /// @notice Validate fee configuration
+    function _validateFees(uint16 feeBps, address feeRecipient) internal pure {
+        if (feeBps > 10_000) revert FeeBpsOverflow(feeBps);
+        if (feeRecipient == address(0) && feeBps != 0) revert ZeroFeeRecipient();
+    }
+
+    /// @notice Calculate and transfer fees
+    function _handleFees(address token, address merchant, address feeRecipient, uint16 feeBps, uint256 value)
+        internal
+        returns (uint256 remainingValue)
+    {
+        uint256 feeAmount = uint256(value) * feeBps / 10_000;
+        remainingValue = value - feeAmount;
+
+        if (feeAmount > 0) _transfer(token, feeRecipient, feeAmount);
+        if (remainingValue > 0) _transfer(token, merchant, remainingValue);
     }
 
     /// @notice Transfer tokens from the escrow to a recipient.
     function _transfer(address token, address recipient, uint256 value) internal {
-        if (token == NATIVE_TOKEN) {
-            SafeTransferLib.safeTransferETH(recipient, value);
-        } else {
-            SafeTransferLib.safeTransfer(token, recipient, value);
-        }
+        SafeTransferLib.safeTransfer(token, recipient, value);
     }
 }
