@@ -16,9 +16,10 @@ contract PaymentEscrowSmartWalletBase is PaymentEscrowBase {
     // Smart wallet specific state
     CoinbaseSmartWalletFactory public smartWalletFactory;
     address public smartWalletImplementation;
+    CoinbaseSmartWallet public smartWalletDeployed;
+    address public deployedWalletOwner;
     address public counterfactualWalletOwner;
     address public smartWalletCounterfactual; // The counterfactual address
-    CoinbaseSmartWallet public smartWalletDeployed; // Helper instance for using smart wallet functions
     uint256 internal constant COUNTERFACTUAL_WALLET_OWNER_PK = 0x5678; // Different from BUYER_PK
     uint256 internal constant DEPLOYED_WALLET_OWNER_PK = 0x1111;
 
@@ -30,7 +31,7 @@ contract PaymentEscrowSmartWalletBase is PaymentEscrowBase {
         smartWalletFactory = new CoinbaseSmartWalletFactory(smartWalletImplementation);
 
         // Create and initialize deployed wallet through factory
-        address deployedWalletOwner = vm.addr(DEPLOYED_WALLET_OWNER_PK);
+        deployedWalletOwner = vm.addr(DEPLOYED_WALLET_OWNER_PK);
         bytes[] memory deployedWalletOwners = new bytes[](1);
         deployedWalletOwners[0] = abi.encode(deployedWalletOwner);
         smartWalletDeployed = CoinbaseSmartWallet(payable(smartWalletFactory.createAccount(deployedWalletOwners, 0)));
@@ -40,10 +41,6 @@ contract PaymentEscrowSmartWalletBase is PaymentEscrowBase {
         bytes[] memory counterfactualWalletOwners = new bytes[](1);
         counterfactualWalletOwners[0] = abi.encode(counterfactualWalletOwner);
         smartWalletCounterfactual = smartWalletFactory.getAddress(counterfactualWalletOwners, 0);
-
-        // Fund the smart wallets
-        mockERC3009Token.mint(address(smartWalletDeployed), 1000e6);
-        mockERC3009Token.mint(smartWalletCounterfactual, 1000e6);
     }
 
     function _sign(uint256 pk, bytes32 hash) internal pure returns (bytes memory signature) {

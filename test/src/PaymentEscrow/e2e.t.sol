@@ -43,6 +43,14 @@ contract PaymentEscrowE2ETest is PaymentEscrowBase {
 }
 
 contract PaymentEscrowSmartWalletE2ETest is PaymentEscrowSmartWalletBase {
+    function setUp() public override {
+        super.setUp();
+
+        // Fund the smart wallets
+        mockERC3009Token.mint(address(smartWalletDeployed), 1000e6);
+        mockERC3009Token.mint(smartWalletCounterfactual, 1000e6);
+    }
+
     function test_charge_succeeds_withDeployedSmartWallet() public {
         // Create payment details
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({

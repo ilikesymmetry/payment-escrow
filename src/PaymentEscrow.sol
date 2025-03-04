@@ -8,6 +8,18 @@ import {PublicERC6492Validator} from "spend-permissions/PublicERC6492Validator.s
 /// @notice Route and escrow payments using ERC-3009 authorizations.
 /// TODO: do we need to enforce a singular acceptable token address? (USDC)
 contract PaymentEscrow {
+    // Transient storage slots (cleared between transactions)
+    // Using high slots to avoid collisions
+    // Hardcoded slot values computed from keccak256("paymentescrow.current.*") - 1
+    uint256 private constant TRANSIENT_SLOT_CURRENT_VALUE =
+        0x3ea5c0ea4c9640f581a326aa37982451d2e0d8d4742013881665f1030d4850a0;
+    uint256 private constant TRANSIENT_SLOT_CURRENT_TOKEN =
+        0x47d4339d1052bb97c927a65e928f30d752743c0aad5ad858d770c3bb34b8b0a0;
+    uint256 private constant TRANSIENT_SLOT_CURRENT_BUYER =
+        0x8e04dc7c2a6b3d96835afd6439b6b1c5c2c7d0f0a68c2028258a1fb555c67a0c;
+    uint256 private constant TRANSIENT_SLOT_CURRENT_DETAILS_HASH =
+        0x5e0c167f292c73b1b22c3f38ad3eeac2c3bd15f1e25f4cf7e845a3e953d959d0;
+
     /// @notice Additional data to compliment ERC-3009 base fields
     struct ExtraData {
         uint256 salt;
@@ -97,14 +109,23 @@ contract PaymentEscrow {
         Authorization memory auth = abi.decode(paymentDetails, (Authorization));
         ExtraData memory data = auth.extraData;
 
-        _validateFees(data.feeBps, data.feeRecipient);
-
+        // Set transient storage
+        _setTransientCurrentValue(value);
+        _setTransientCurrentToken(auth.token);
+        _setTransientCurrentBuyer(auth.from);
         bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
+        _setTransientCurrentDetailsHash(paymentDetailsHash);
 
+        _validateFees(data.feeBps, data.feeRecipient);
         _executeReceiveWithAuth(auth, value, paymentDetailsHash, signature);
         emit Charged(paymentDetailsHash, value);
-
         _handleFees(auth.token, data.merchant, data.feeRecipient, data.feeBps, value);
+
+        // Clear transient storage
+        _setTransientCurrentValue(0);
+        _setTransientCurrentToken(address(0));
+        _setTransientCurrentBuyer(address(0));
+        _setTransientCurrentDetailsHash(bytes32(0));
     }
 
     /// @notice Validates buyer signature and transfers funds from buyer to escrow.
@@ -273,5 +294,53 @@ contract PaymentEscrow {
     /// @notice Transfer tokens from the escrow to a recipient.
     function _transfer(address token, address recipient, uint256 value) internal {
         SafeTransferLib.safeTransfer(token, recipient, value);
+    }
+
+    function _setTransientCurrentValue(uint256 value) internal {
+        assembly {
+            sstore(TRANSIENT_SLOT_CURRENT_VALUE, value)
+        }
+    }
+
+    function _setTransientCurrentToken(address token) internal {
+        assembly {
+            sstore(TRANSIENT_SLOT_CURRENT_TOKEN, token)
+        }
+    }
+
+    function _setTransientCurrentBuyer(address buyer) internal {
+        assembly {
+            sstore(TRANSIENT_SLOT_CURRENT_BUYER, buyer)
+        }
+    }
+
+    function _setTransientCurrentDetailsHash(bytes32 detailsHash) internal {
+        assembly {
+            sstore(TRANSIENT_SLOT_CURRENT_DETAILS_HASH, detailsHash)
+        }
+    }
+
+    function getCurrentValue() public view returns (uint256 value) {
+        assembly {
+            value := sload(TRANSIENT_SLOT_CURRENT_VALUE)
+        }
+    }
+
+    function getCurrentToken() public view returns (address token) {
+        assembly {
+            token := sload(TRANSIENT_SLOT_CURRENT_TOKEN)
+        }
+    }
+
+    function getCurrentBuyer() public view returns (address buyer) {
+        assembly {
+            buyer := sload(TRANSIENT_SLOT_CURRENT_BUYER)
+        }
+    }
+
+    function getCurrentDetailsHash() public view returns (bytes32 detailsHash) {
+        assembly {
+            detailsHash := sload(TRANSIENT_SLOT_CURRENT_DETAILS_HASH)
+        }
     }
 }
