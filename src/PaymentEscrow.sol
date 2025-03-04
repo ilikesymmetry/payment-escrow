@@ -237,16 +237,13 @@ contract PaymentEscrow {
         bytes32 paymentDetailsHash,
         bytes calldata signature
     ) internal {
-        // Deploy smart wallet if needed. This version of PublicERC6492Validator does not include the final ecrecover
-        // check, so will revert if validating an EOA signature. Hence the try-catch.
-        // A possible TODO: Create new version of PublicERC6492Validator on Solady v0.1.0 that does include the final ecrecover.
-        try erc6492Validator.isValidSignatureNowAllowSideEffects(auth.from, paymentDetailsHash, signature) returns (
-            bool isValid
-        ) {} catch {}
-
-        // If it's an ERC6492 signature, unwrap it to get the inner signature
         bytes memory innerSignature = signature;
         if (signature.length >= 32 && bytes32(signature[signature.length - 32:]) == ERC6492_MAGIC_VALUE) {
+            // Deploy smart wallet if needed. This version of PublicERC6492Validator does not include the final ecrecover
+            // check, so will revert if validating an EOA signature. EOAs shouldn't provide 6492 sigs.
+            // A possible TODO: Create new version of PublicERC6492Validator on Solady v0.1.0 that does include the final ecrecover.
+            erc6492Validator.isValidSignatureNowAllowSideEffects(auth.from, paymentDetailsHash, signature);
+            // If it's an ERC6492 signature, unwrap it to get the inner signature
             (,, innerSignature) = abi.decode(signature[0:signature.length - 32], (address, bytes, bytes));
         }
 
