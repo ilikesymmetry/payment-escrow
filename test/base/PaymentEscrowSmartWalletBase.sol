@@ -80,38 +80,42 @@ contract PaymentEscrowSmartWalletBase is PaymentEscrowBase {
             )
         );
 
-        bytes32 erc3009StructHash = keccak256(
-            abi.encode(
-                mockERC3009Token.RECEIVE_WITH_AUTHORIZATION_TYPEHASH(), from, to, value, validAfter, validBefore, nonce
-            )
-        );
-        console2.log("ERC3009 struct hash:", uint256(erc3009StructHash));
-
-        bytes32 erc3009Digest =
-            keccak256(abi.encodePacked("\x19\x01", mockERC3009Token.DOMAIN_SEPARATOR(), erc3009StructHash));
+        // This is what needs to be signed by the smart wallet
+        bytes32 erc3009Digest = _getERC3009Digest(from, to, value, validAfter, validBefore, nonce);
         console2.log("ERC3009 digest:", uint256(erc3009Digest));
 
-        // Compute the replay-safe hash using the actual smart wallet's address
+        // Now wrap the ERC3009 digest in the smart wallet's domain
         bytes32 domainSeparator = keccak256(
             abi.encode(
                 keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
                 keccak256(bytes("Coinbase Smart Wallet")),
                 keccak256(bytes("1")),
                 block.chainid,
-                from // The actual smart wallet address
+                from
             )
         );
-        console2.log("Domain separator:", uint256(domainSeparator));
 
         bytes32 messageHash = keccak256(abi.encode(CBSW_MESSAGE_TYPEHASH, erc3009Digest));
-        console2.log("Message hash:", uint256(messageHash));
-
         bytes32 finalHash = keccak256(abi.encodePacked("\x19\x01", domainSeparator, messageHash));
-        console2.log("Final hash to sign:", uint256(finalHash));
 
-        // Sign the replay-safe hash and wrap with owner index
         bytes memory signature = _sign(ownerPk, finalHash);
         return abi.encode(ownerIndex, signature);
+    }
+
+    function _getERC3009Digest(
+        address from,
+        address to,
+        uint256 value,
+        uint256 validAfter,
+        uint256 validBefore,
+        bytes32 nonce
+    ) internal view returns (bytes32) {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                mockERC3009Token.RECEIVE_WITH_AUTHORIZATION_TYPEHASH(), from, to, value, validAfter, validBefore, nonce
+            )
+        );
+        return keccak256(abi.encodePacked("\x19\x01", mockERC3009Token.DOMAIN_SEPARATOR(), structHash));
     }
 
     function _createSmartWalletPaymentDetails(uint256 value, uint256 validAfter, uint256 validBefore, bytes32 nonce)

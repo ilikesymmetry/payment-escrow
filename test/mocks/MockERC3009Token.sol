@@ -3,7 +3,7 @@ pragma solidity ^0.8.13;
 
 import {ERC20} from "solady/tokens/ERC20.sol";
 import {IERC3009} from "../../src/IERC3009.sol";
-import {ECDSA} from "solady/utils/ECDSA.sol";
+import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 import {console2} from "forge-std/console2.sol";
 
 contract MockERC3009Token is ERC20, IERC3009 {
@@ -35,6 +35,8 @@ contract MockERC3009Token is ERC20, IERC3009 {
         return _decimals;
     }
 
+    event AuthorizationUsed(address indexed authorizer, bytes32 indexed nonce);
+
     function receiveWithAuthorization(
         address from,
         address to,
@@ -53,9 +55,9 @@ contract MockERC3009Token is ERC20, IERC3009 {
         console2.log("  nonce:", uint256(nonce));
 
         require(to == msg.sender, "MockERC3009: caller must be the payee");
-        require(block.timestamp > validAfter, "MockERC3009: not yet valid");
-        require(block.timestamp < validBefore, "MockERC3009: expired");
-        require(!_authorizationStates[from][nonce], "MockERC3009: authorization used");
+        require(!_authorizationStates[from][nonce], "MockERC3009: authorization is used");
+        require(block.timestamp > validAfter, "MockERC3009: authorization not yet valid");
+        require(block.timestamp < validBefore, "MockERC3009: authorization expired");
 
         console2.log("From:", from);
         console2.log("To:", to);
@@ -74,13 +76,10 @@ contract MockERC3009Token is ERC20, IERC3009 {
 
         console2.log("MockERC3009Token computed digest:", uint256(digest));
 
-        address signer = ECDSA.recover(digest, signature);
-
-        console2.log("MockERC3009Token recovered signer:", signer);
-
-        require(from == signer, "MockERC3009: invalid signature");
+        require(SignatureCheckerLib.isValidSignatureNow(from, digest, signature), "MockERC3009: invalid signature");
 
         _authorizationStates[from][nonce] = true;
+        emit AuthorizationUsed(from, nonce);
         _transfer(from, to, value);
     }
 

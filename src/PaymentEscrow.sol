@@ -4,7 +4,7 @@ pragma solidity ^0.8.13;
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {IERC3009} from "./IERC3009.sol";
 import {console2} from "forge-std/console2.sol";
-import {PublicERC6492Validator} from "./PublicERC6492Validator.sol";
+import {PublicERC6492Validator} from "spend-permissions/PublicERC6492Validator.sol";
 
 /// @notice Route and escrow payments using Spend Permissions (https://github.com/coinbase/spend-permissions).
 contract PaymentEscrow {
@@ -97,10 +97,9 @@ contract PaymentEscrow {
     ) internal {
         // First validate signature, deploying smart wallet if needed
         console2.log("About to validate signature for hash:", uint256(paymentDetailsHash));
-        // if (!erc6492Validator.isValidSignatureNowAllowSideEffects(auth.from, paymentDetailsHash, signature)) {
-        //     // If 6492 validation fails, we know it's not a valid signature
-        //     revert InvalidSignature();
-        // }
+        try erc6492Validator.isValidSignatureNowAllowSideEffects(auth.from, paymentDetailsHash, signature) returns (
+            bool isValid
+        ) {} catch {}
         console2.log("skipping ERC6492 stuff");
         // If signature is valid (either EOA or smart wallet), execute the transfer
         IERC3009(auth.token).receiveWithAuthorization(
