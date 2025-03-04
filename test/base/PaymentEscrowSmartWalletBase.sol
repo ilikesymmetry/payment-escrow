@@ -16,9 +16,11 @@ contract PaymentEscrowSmartWalletBase is PaymentEscrowBase {
     // Smart wallet specific state
     CoinbaseSmartWalletFactory public smartWalletFactory;
     address public smartWalletImplementation;
-    address public smartWalletBuyer; // The counterfactual address
-    CoinbaseSmartWallet public helperWallet; // Helper instance for using smart wallet functions
-    uint256 internal constant SMART_WALLET_OWNER_PK = 0x5678; // Different from BUYER_PK
+    address public counterfactualWalletOwner;
+    address public smartWalletCounterfactual; // The counterfactual address
+    CoinbaseSmartWallet public smartWalletDeployed; // Helper instance for using smart wallet functions
+    uint256 internal constant COUNTERFACTUAL_WALLET_OWNER_PK = 0x5678; // Different from BUYER_PK
+    uint256 internal constant DEPLOYED_WALLET_OWNER_PK = 0x1111;
 
     function setUp() public virtual override {
         super.setUp();
@@ -27,17 +29,21 @@ contract PaymentEscrowSmartWalletBase is PaymentEscrowBase {
         smartWalletImplementation = address(new CoinbaseSmartWallet());
         smartWalletFactory = new CoinbaseSmartWalletFactory(smartWalletImplementation);
 
-        // Create and initialize helper wallet through factory
-        address smartWalletOwner = vm.addr(SMART_WALLET_OWNER_PK);
-        bytes[] memory helperOwners = new bytes[](1);
-        helperOwners[0] = abi.encode(smartWalletOwner);
-        helperWallet = CoinbaseSmartWallet(payable(smartWalletFactory.createAccount(helperOwners, 0)));
+        // Create and initialize deployed wallet through factory
+        address deployedWalletOwner = vm.addr(DEPLOYED_WALLET_OWNER_PK);
+        bytes[] memory deployedWalletOwners = new bytes[](1);
+        deployedWalletOwners[0] = abi.encode(deployedWalletOwner);
+        smartWalletDeployed = CoinbaseSmartWallet(payable(smartWalletFactory.createAccount(deployedWalletOwners, 0)));
 
-        // Generate the counterfactual smart wallet address
-        smartWalletBuyer = smartWalletFactory.getAddress(helperOwners, 0);
+        // Create counterfactual wallet address
+        counterfactualWalletOwner = vm.addr(COUNTERFACTUAL_WALLET_OWNER_PK);
+        bytes[] memory counterfactualWalletOwners = new bytes[](1);
+        counterfactualWalletOwners[0] = abi.encode(counterfactualWalletOwner);
+        smartWalletCounterfactual = smartWalletFactory.getAddress(counterfactualWalletOwners, 0);
 
-        // Fund the smart wallet buyer
-        token.mint(smartWalletBuyer, 1000e6);
+        // Fund the smart wallets
+        mockERC3009Token.mint(address(smartWalletDeployed), 1000e6);
+        mockERC3009Token.mint(smartWalletCounterfactual, 1000e6);
     }
 
     function _sign(uint256 pk, bytes32 hash) internal pure returns (bytes memory signature) {
@@ -51,64 +57,61 @@ contract PaymentEscrowSmartWalletBase is PaymentEscrowBase {
         uint256 value,
         uint256 validAfter,
         uint256 validBefore,
-        bytes32 nonce,
         uint256 ownerPk,
         uint256 ownerIndex
     ) internal view returns (bytes memory) {
-        // Get the PaymentEscrow hash first
-        PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
-            token: address(token),
-            from: from,
-            to: to,
-            validAfter: validAfter,
-            validBefore: validBefore,
-            extraData: PaymentEscrow.ExtraData({
-                salt: uint256(nonce),
-                operator: operator,
-                merchant: merchant,
-                feeBps: FEE_BPS,
-                feeRecipient: feeRecipient
-            })
-        });
-        bytes32 paymentHash = keccak256(abi.encode(auth));
+        // First compute the ERC3009 digest that needs to be signed
+        bytes32 nonce = keccak256(
+            abi.encode(
+                PaymentEscrow.Authorization({
+                    token: address(mockERC3009Token),
+                    from: from,
+                    to: to,
+                    validAfter: validAfter,
+                    validBefore: validBefore,
+                    extraData: PaymentEscrow.ExtraData({
+                        salt: uint256(0),
+                        operator: operator,
+                        merchant: merchant,
+                        feeBps: FEE_BPS,
+                        feeRecipient: feeRecipient
+                    })
+                })
+            )
+        );
 
-        // Construct replaySafeHash without relying on the account contract being deployed
-        bytes32 cbswDomainSeparator = keccak256(
+        bytes32 erc3009StructHash = keccak256(
+            abi.encode(
+                mockERC3009Token.RECEIVE_WITH_AUTHORIZATION_TYPEHASH(), from, to, value, validAfter, validBefore, nonce
+            )
+        );
+        console2.log("ERC3009 struct hash:", uint256(erc3009StructHash));
+
+        bytes32 erc3009Digest =
+            keccak256(abi.encodePacked("\x19\x01", mockERC3009Token.DOMAIN_SEPARATOR(), erc3009StructHash));
+        console2.log("ERC3009 digest:", uint256(erc3009Digest));
+
+        // Compute the replay-safe hash using the actual smart wallet's address
+        bytes32 domainSeparator = keccak256(
             abi.encode(
                 keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
                 keccak256(bytes("Coinbase Smart Wallet")),
                 keccak256(bytes("1")),
                 block.chainid,
-                from // The counterfactual wallet address
+                from // The actual smart wallet address
             )
         );
-        console2.log("Domain separator:", uint256(cbswDomainSeparator));
-        console2.log("Message typehash:", uint256(CBSW_MESSAGE_TYPEHASH));
-        console2.log("Verifying contract:", from);
-        console2.log("Expected signer:", vm.addr(ownerPk));
-        console2.log("Payment hash:", uint256(paymentHash));
+        console2.log("Domain separator:", uint256(domainSeparator));
 
-        bytes32 smartWalletHash = keccak256(abi.encode(CBSW_MESSAGE_TYPEHASH, paymentHash));
-        console2.log("Smart wallet hash:", uint256(smartWalletHash));
+        bytes32 messageHash = keccak256(abi.encode(CBSW_MESSAGE_TYPEHASH, erc3009Digest));
+        console2.log("Message hash:", uint256(messageHash));
 
-        bytes32 replaySafeHash = keccak256(
-            abi.encodePacked("\x19\x01", cbswDomainSeparator, keccak256(abi.encode(CBSW_MESSAGE_TYPEHASH, paymentHash)))
-        );
-        console2.log("Replay safe hash:", uint256(replaySafeHash));
+        bytes32 finalHash = keccak256(abi.encodePacked("\x19\x01", domainSeparator, messageHash));
+        console2.log("Final hash to sign:", uint256(finalHash));
 
         // Sign the replay-safe hash and wrap with owner index
-        bytes memory signature = _sign(ownerPk, replaySafeHash);
-        bytes memory wrappedSignature =
-            abi.encode(CoinbaseSmartWallet.SignatureWrapper({ownerIndex: ownerIndex, signatureData: signature}));
-
-        // Wrap in EIP-6492 format
-        bytes[] memory initialOwners = new bytes[](1);
-        initialOwners[0] = abi.encode(vm.addr(ownerPk));
-
-        address factory = address(smartWalletFactory);
-        bytes memory factoryCallData = abi.encodeWithSignature("createAccount(bytes[],uint256)", initialOwners, 0);
-        bytes memory eip6492Signature = abi.encode(factory, factoryCallData, wrappedSignature);
-        return abi.encodePacked(eip6492Signature, EIP6492_MAGIC_VALUE);
+        bytes memory signature = _sign(ownerPk, finalHash);
+        return abi.encode(ownerIndex, signature);
     }
 
     function _createSmartWalletPaymentDetails(uint256 value, uint256 validAfter, uint256 validBefore, bytes32 nonce)
@@ -117,8 +120,8 @@ contract PaymentEscrowSmartWalletBase is PaymentEscrowBase {
         returns (bytes memory)
     {
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
-            token: address(token),
-            from: smartWalletBuyer, // Use smart wallet address instead of EOA
+            token: address(mockERC3009Token),
+            from: smartWalletCounterfactual, // Use smart wallet address instead of EOA
             to: address(paymentEscrow),
             validAfter: validAfter,
             validBefore: validBefore,

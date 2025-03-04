@@ -14,8 +14,8 @@ contract PaymentEscrowE2ETest is PaymentEscrowBase {
 
         // Create payment details first
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
-            token: address(token),
-            from: buyer,
+            token: address(mockERC3009Token),
+            from: buyerEOA,
             to: address(paymentEscrow),
             validAfter: validAfter,
             validBefore: validBefore,
@@ -33,28 +33,47 @@ contract PaymentEscrowE2ETest is PaymentEscrowBase {
         console2.log("Test nonce:", uint256(nonce));
 
         bytes memory signature =
-            _signERC3009(buyer, address(paymentEscrow), amount, validAfter, validBefore, nonce, BUYER_PK);
+            _signERC3009(buyerEOA, address(paymentEscrow), amount, validAfter, validBefore, nonce, BUYER_EOA_PK);
 
         vm.prank(operator);
         paymentEscrow.charge(amount, paymentDetails, signature);
 
         uint256 feeAmount = amount * FEE_BPS / 10_000;
-        assertEq(token.balanceOf(merchant), amount - feeAmount);
-        assertEq(token.balanceOf(feeRecipient), feeAmount);
+        assertEq(mockERC3009Token.balanceOf(merchant), amount - feeAmount);
+        assertEq(mockERC3009Token.balanceOf(feeRecipient), feeAmount);
     }
 }
 
 contract PaymentEscrowSmartWalletE2ETest is PaymentEscrowSmartWalletBase {
-    function test_charge_with_smart_wallet() public {
+    function test_charge_with_deployed_smart_wallet() public {
         // Create payment details
-        (uint256 validAfter, uint256 validBefore) = _getValidTimeRange();
-        bytes memory paymentDetails = _createSmartWalletPaymentDetails(100e6, validAfter, validBefore, bytes32(0));
+        PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
+            token: address(mockERC3009Token),
+            from: address(smartWalletDeployed), // Use smart wallet address instead of EOA
+            to: address(paymentEscrow),
+            validAfter: block.timestamp - 1,
+            validBefore: block.timestamp + 1 days,
+            extraData: PaymentEscrow.ExtraData({
+                salt: uint256(0),
+                operator: operator,
+                merchant: merchant,
+                feeBps: FEE_BPS,
+                feeRecipient: feeRecipient
+            })
+        });
+        bytes memory paymentDetails = abi.encode(auth);
         bytes32 nonce = keccak256(paymentDetails); // Use paymentDetailsHash as nonce
-        console2.log("Payment details hash:", uint256(keccak256(paymentDetails)));
+        console2.log("Payment details hash e2e:", uint256(keccak256(paymentDetails)));
 
         // Create signature
         bytes memory signature = _signSmartWalletERC3009(
-            smartWalletBuyer, address(paymentEscrow), 100e6, validAfter, validBefore, nonce, SMART_WALLET_OWNER_PK, 0
+            address(smartWalletDeployed),
+            address(paymentEscrow),
+            100e6,
+            auth.validAfter,
+            auth.validBefore,
+            DEPLOYED_WALLET_OWNER_PK,
+            0
         );
 
         // Submit charge
@@ -63,7 +82,36 @@ contract PaymentEscrowSmartWalletE2ETest is PaymentEscrowSmartWalletBase {
         paymentEscrow.charge(amount, paymentDetails, signature);
 
         uint256 feeAmount = amount * FEE_BPS / 10_000;
-        assertEq(token.balanceOf(merchant), amount - feeAmount);
-        assertEq(token.balanceOf(feeRecipient), feeAmount);
+        assertEq(mockERC3009Token.balanceOf(merchant), amount - feeAmount);
+        assertEq(mockERC3009Token.balanceOf(feeRecipient), feeAmount);
     }
+
+    // function test_charge_with_counterfactual_smart_wallet() public {
+    //     // Create payment details
+    //     (uint256 validAfter, uint256 validBefore) = _getValidTimeRange();
+    //     bytes memory paymentDetails = _createSmartWalletPaymentDetails(100e6, validAfter, validBefore, bytes32(0));
+    //     bytes32 nonce = keccak256(paymentDetails); // Use paymentDetailsHash as nonce
+    //     console2.log("Payment details hash e2e:", uint256(keccak256(paymentDetails)));
+
+    //     // Create signature
+    //     bytes memory signature = _signSmartWalletERC3009_ERC6492(
+    //         smartWalletCounterfactual,
+    //         address(paymentEscrow),
+    //         100e6,
+    //         validAfter,
+    //         validBefore,
+    //         nonce,
+    //         COUNTERFACTUAL_WALLET_OWNER_PK,
+    //         0
+    //     );
+
+    //     // Submit charge
+    //     vm.prank(operator);
+    //     uint256 amount = 100e6;
+    //     paymentEscrow.charge(amount, paymentDetails, signature);
+
+    //     uint256 feeAmount = amount * FEE_BPS / 10_000;
+    //     assertEq(mockERC3009Token.balanceOf(merchant), amount - feeAmount);
+    //     assertEq(mockERC3009Token.balanceOf(feeRecipient), feeAmount);
+    // }
 }

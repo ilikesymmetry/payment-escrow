@@ -44,6 +44,14 @@ contract MockERC3009Token is ERC20, IERC3009 {
         bytes32 nonce,
         bytes memory signature
     ) external {
+        console2.log("MockERC3009Token.receiveWithAuthorization called with:");
+        console2.log("  from:", from);
+        console2.log("  to:", to);
+        console2.log("  value:", value);
+        console2.log("  validAfter:", validAfter);
+        console2.log("  validBefore:", validBefore);
+        console2.log("  nonce:", uint256(nonce));
+
         require(to == msg.sender, "MockERC3009: caller must be the payee");
         require(block.timestamp > validAfter, "MockERC3009: not yet valid");
         require(block.timestamp < validBefore, "MockERC3009: expired");
@@ -56,19 +64,21 @@ contract MockERC3009Token is ERC20, IERC3009 {
         console2.log("ValidBefore:", validBefore);
         console2.log("Nonce:", uint256(nonce));
 
+        console2.log("MockERC3009Token.receiveWithAuthorization called with nonce:", uint256(nonce));
+        console2.log("Computing struct hash with typehash:", uint256(RECEIVE_WITH_AUTHORIZATION_TYPEHASH));
         bytes32 structHash =
             keccak256(abi.encode(RECEIVE_WITH_AUTHORIZATION_TYPEHASH, from, to, value, validAfter, validBefore, nonce));
+        console2.log("Computed struct hash:", uint256(structHash));
 
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR(), structHash));
 
-        // Add debug events
-        emit Debug("Expected signer", from);
-        emit Debug("Recovered signer", ECDSA.recover(digest, signature));
-        emit Debug("Domain separator", DOMAIN_SEPARATOR());
-        emit Debug("Struct hash", structHash);
-        emit Debug("Final digest", digest);
+        console2.log("MockERC3009Token computed digest:", uint256(digest));
 
-        require(from == ECDSA.recover(digest, signature), "MockERC3009: invalid signature");
+        address signer = ECDSA.recover(digest, signature);
+
+        console2.log("MockERC3009Token recovered signer:", signer);
+
+        require(from == signer, "MockERC3009: invalid signature");
 
         _authorizationStates[from][nonce] = true;
         _transfer(from, to, value);
