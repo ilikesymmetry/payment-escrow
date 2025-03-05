@@ -130,36 +130,6 @@ contract PaymentEscrow {
         emit AuthorizationIncreased(paymentDetailsHash, value);
     }
 
-    // /// @notice Transfer funds from buyer to escrow via pre-approved SpendPermission.
-    // /// @dev Reverts if not called by operator.
-    // function increaseAuthorization(uint256 value, bytes calldata paymentDetails)
-    //     external
-    //     onlyOperator(paymentDetails)
-    //     nonZeroValue(value)
-    // {
-    //     revert Unsupported(); // TODO: pretty sure we can implement this?
-    // }
-
-    // /// @notice Return previously-escrowed funds to buyer.
-    // /// @dev Reverts if not called by operator or captureAddress.
-    // function decreaseAuthorization(uint256 value, bytes calldata paymentDetails)
-    //     external
-    //     onlyOperator(paymentDetails)
-    //     nonZeroValue(value)
-    // {
-    //     Authorization memory auth = abi.decode(paymentDetails, (Authorization));
-    //     ExtraData memory data = auth.extraData;
-    //     bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
-
-    //     // check sufficient authorization
-    //     uint256 authorizedValue = _authorized[paymentDetailsHash];
-    //     if (authorizedValue < value) revert InsufficientAuthorization(paymentDetailsHash, authorizedValue, value);
-
-    //     _authorized[paymentDetailsHash] = authorizedValue - value;
-    //     emit AuthorizationDecreased(paymentDetailsHash, value);
-    //     _transfer(auth.token, data.captureAddress, value);
-    // }
-
     /// @notice Cancel payment by revoking authorization and refunding all escrowed funds.
     /// @dev Reverts if not called by operator or captureAddress.
     function voidAuthorization(bytes calldata paymentDetails) external onlyOperator(paymentDetails) {
