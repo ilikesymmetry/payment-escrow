@@ -42,7 +42,7 @@ contract PaymentEscrow {
     mapping(bytes32 paymentDetailsHash => uint256 value) internal _captured;
 
     /// @notice Payment charged to buyer and immediately captured.
-    event Charged(bytes32 indexed paymentDetailsHash, uint256 value);
+    event PaymentCharged(bytes32 indexed paymentDetailsHash, uint256 value);
 
     /// @notice Payment authorized, increasing value escrowed.
     event AuthorizationIncreased(bytes32 indexed paymentDetailsHash, uint256 value);
@@ -51,13 +51,13 @@ contract PaymentEscrow {
     event AuthorizationDecreased(bytes32 indexed paymentDetailsHash, uint256 value);
 
     /// @notice Payment refunded to buyer, descreasing value escrowed.
-    event AuthorizationVoided(bytes32 indexed paymentDetailsHash);
+    event PaymentVoided(bytes32 indexed paymentDetailsHash);
 
     /// @notice Payment captured, descreasing value escrowed.
-    event AuthorizationCaptured(bytes32 indexed paymentDetailsHash, uint256 value);
+    event PaymentCaptured(bytes32 indexed paymentDetailsHash, uint256 value);
 
     /// @notice Payment refunded to buyer.
-    event Refunded(bytes32 indexed paymentDetailsHash, address indexed refunder, uint256 value);
+    event PaymentRefunded(bytes32 indexed paymentDetailsHash, address indexed refunder, uint256 value);
 
     error InsufficientAuthorization(bytes32 paymentDetailsHash, uint256 authorizedValue, uint256 requestedValue);
     error ValueLimitExceeded(uint256 value);
@@ -102,7 +102,7 @@ contract PaymentEscrow {
         bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
 
         _executeReceiveWithAuth(auth, value, paymentDetailsHash, signature);
-        emit Charged(paymentDetailsHash, value);
+        emit PaymentCharged(paymentDetailsHash, value);
 
         _handleFees(auth.token, data.captureAddress, data.feeRecipient, data.feeBps, value);
     }
@@ -146,7 +146,7 @@ contract PaymentEscrow {
 
         delete _authorized[paymentDetailsHash];
         emit AuthorizationDecreased(paymentDetailsHash, authorizedValue);
-        emit AuthorizationVoided(paymentDetailsHash);
+        emit PaymentVoided(paymentDetailsHash);
         _transfer(auth.token, auth.from, authorizedValue);
     }
 
@@ -170,7 +170,7 @@ contract PaymentEscrow {
         // update state
         _authorized[paymentDetailsHash] = authorizedValue - value;
         _captured[paymentDetailsHash] += value;
-        emit AuthorizationCaptured(paymentDetailsHash, value);
+        emit PaymentCaptured(paymentDetailsHash, value);
 
         // calculate fees and remaining payment value
         uint256 feeAmount = uint256(value) * data.feeBps / 10_000;
@@ -200,7 +200,7 @@ contract PaymentEscrow {
         if (captured < value) revert RefundExceedsCapture(value, captured);
 
         _captured[paymentDetailsHash] = captured - value;
-        emit Refunded(paymentDetailsHash, msg.sender, value);
+        emit PaymentRefunded(paymentDetailsHash, msg.sender, value);
 
         // return tokens to buyer
         SafeTransferLib.safeTransferFrom(auth.token, msg.sender, data.captureAddress, value);
