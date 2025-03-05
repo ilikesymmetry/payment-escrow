@@ -5,9 +5,61 @@ import {PaymentEscrow} from "../../../src/PaymentEscrow.sol";
 import {PaymentEscrowBase} from "../../base/PaymentEscrowBase.sol";
 
 contract ConfirmAuthorizationTest is PaymentEscrowBase {
-    function test_confirmAuthorization_succeeds_whenValueEqualsAuthorized() public {
-        uint256 authorizedAmount = 100e6;
-        uint256 valueToConfirm = authorizedAmount;
+    function test_confirmAuthorization_succeeds_whenValueEqualsAuthorized(uint256 amount) public {
+        // Get buyer's current balance
+        uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
+
+        // Assume reasonable values and ensure we don't exceed buyer's balance
+        vm.assume(amount > 0 && amount <= buyerBalance);
+
+        PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
+            token: address(mockERC3009Token),
+            from: buyerEOA,
+            to: address(paymentEscrow),
+            validAfter: block.timestamp - 1,
+            validBefore: block.timestamp + 1 days,
+            value: amount,
+            extraData: PaymentEscrow.ExtraData({
+                salt: 0,
+                operator: operator,
+                captureAddress: captureAddress,
+                feeBps: FEE_BPS,
+                feeRecipient: feeRecipient
+            })
+        });
+
+        bytes memory paymentDetails = abi.encode(auth);
+        bytes32 paymentDetailsHash = keccak256(paymentDetails);
+
+        bytes memory signature = _signERC3009(
+            buyerEOA,
+            address(paymentEscrow),
+            amount,
+            auth.validAfter,
+            auth.validBefore,
+            paymentDetailsHash,
+            BUYER_EOA_PK
+        );
+
+        uint256 buyerBalanceBefore = mockERC3009Token.balanceOf(buyerEOA);
+
+        vm.prank(operator);
+        paymentEscrow.confirmAuthorization(amount, paymentDetails, signature);
+
+        assertEq(mockERC3009Token.balanceOf(address(paymentEscrow)), amount);
+        assertEq(mockERC3009Token.balanceOf(buyerEOA), buyerBalanceBefore - amount);
+    }
+
+    function test_confirmAuthorization_succeeds_whenValueLessThanAuthorized(
+        uint256 authorizedAmount,
+        uint256 confirmAmount
+    ) public {
+        // Get buyer's current balance
+        uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
+
+        // Assume reasonable values and ensure we don't exceed buyer's balance
+        vm.assume(authorizedAmount > 0 && authorizedAmount <= buyerBalance);
+        vm.assume(confirmAmount > 0 && confirmAmount < authorizedAmount);
 
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),
@@ -41,58 +93,22 @@ contract ConfirmAuthorizationTest is PaymentEscrowBase {
         uint256 buyerBalanceBefore = mockERC3009Token.balanceOf(buyerEOA);
 
         vm.prank(operator);
-        paymentEscrow.confirmAuthorization(valueToConfirm, paymentDetails, signature);
+        paymentEscrow.confirmAuthorization(confirmAmount, paymentDetails, signature);
 
-        assertEq(mockERC3009Token.balanceOf(address(paymentEscrow)), valueToConfirm);
-        assertEq(mockERC3009Token.balanceOf(buyerEOA), buyerBalanceBefore - valueToConfirm);
-    }
-
-    function test_confirmAuthorization_succeeds_whenValueLessThanAuthorized() public {
-        uint256 authorizedAmount = 100e6;
-        uint256 valueToConfirm = 60e6; // Confirm less than authorized
-        uint256 refundAmount = authorizedAmount - valueToConfirm;
-
-        PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
-            token: address(mockERC3009Token),
-            from: buyerEOA,
-            to: address(paymentEscrow),
-            validAfter: block.timestamp - 1,
-            validBefore: block.timestamp + 1 days,
-            value: authorizedAmount,
-            extraData: PaymentEscrow.ExtraData({
-                salt: 0,
-                operator: operator,
-                captureAddress: captureAddress,
-                feeBps: FEE_BPS,
-                feeRecipient: feeRecipient
-            })
-        });
-
-        bytes memory paymentDetails = abi.encode(auth);
-        bytes32 paymentDetailsHash = keccak256(paymentDetails);
-
-        bytes memory signature = _signERC3009(
-            buyerEOA,
-            address(paymentEscrow),
-            authorizedAmount,
-            auth.validAfter,
-            auth.validBefore,
-            paymentDetailsHash,
-            BUYER_EOA_PK
+        assertEq(mockERC3009Token.balanceOf(address(paymentEscrow)), confirmAmount);
+        assertEq(
+            mockERC3009Token.balanceOf(buyerEOA),
+            buyerBalanceBefore - authorizedAmount + (authorizedAmount - confirmAmount)
         );
-
-        uint256 buyerBalanceBefore = mockERC3009Token.balanceOf(buyerEOA);
-
-        vm.prank(operator);
-        paymentEscrow.confirmAuthorization(valueToConfirm, paymentDetails, signature);
-
-        assertEq(mockERC3009Token.balanceOf(address(paymentEscrow)), valueToConfirm);
-        assertEq(mockERC3009Token.balanceOf(buyerEOA), buyerBalanceBefore - authorizedAmount + refundAmount);
     }
 
-    function test_confirmAuthorization_reverts_whenValueExceedsAuthorized() public {
-        uint256 authorizedAmount = 100e6;
-        uint256 valueToConfirm = 120e6; // Try to confirm more than authorized
+    function test_confirmAuthorization_reverts_whenValueExceedsAuthorized(uint256 authorizedAmount) public {
+        // Get buyer's current balance
+        uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
+
+        // Assume reasonable values and ensure we don't exceed buyer's balance
+        vm.assume(authorizedAmount > 0 && authorizedAmount <= buyerBalance);
+        uint256 confirmAmount = authorizedAmount + 1; // Always exceeds authorized
 
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),
@@ -124,13 +140,16 @@ contract ConfirmAuthorizationTest is PaymentEscrowBase {
         );
 
         vm.prank(operator);
-        vm.expectRevert(abi.encodeWithSelector(PaymentEscrow.ValueLimitExceeded.selector, valueToConfirm));
-        paymentEscrow.confirmAuthorization(valueToConfirm, paymentDetails, signature);
+        vm.expectRevert(abi.encodeWithSelector(PaymentEscrow.ValueLimitExceeded.selector, confirmAmount));
+        paymentEscrow.confirmAuthorization(confirmAmount, paymentDetails, signature);
     }
 
-    function test_confirmAuthorization_reverts_whenAuthorizationIsVoided() public {
-        uint256 authorizedAmount = 100e6;
-        uint256 valueToConfirm = authorizedAmount;
+    function test_confirmAuthorization_reverts_whenAuthorizationIsVoided(uint256 authorizedAmount) public {
+        // Get buyer's current balance
+        uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
+
+        // Assume reasonable values and ensure we don't exceed buyer's balance
+        vm.assume(authorizedAmount > 0 && authorizedAmount <= buyerBalance);
 
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),
@@ -168,7 +187,7 @@ contract ConfirmAuthorizationTest is PaymentEscrowBase {
         // Then try to confirm the voided authorization
         vm.prank(operator);
         vm.expectRevert(abi.encodeWithSelector(PaymentEscrow.VoidAuthorization.selector, paymentDetailsHash));
-        paymentEscrow.confirmAuthorization(valueToConfirm, paymentDetails, signature);
+        paymentEscrow.confirmAuthorization(authorizedAmount, paymentDetails, signature);
     }
 
     function test_confirmAuthorization_emitsCorrectEvents() public {
