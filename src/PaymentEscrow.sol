@@ -90,44 +90,77 @@ contract PaymentEscrow {
     receive() external payable {}
 
     /// @notice Transfers funds from buyer to captureAddress.
-    function charge(uint256 value, bytes calldata paymentDetails, bytes calldata signature)
+    /// @dev If valueToCharge is less than the authorized value in paymentDetails,
+    ///      the difference will be returned to the buyer.
+    function charge(uint256 valueToCharge, bytes calldata paymentDetails, bytes calldata signature)
         external
         onlyOperator(paymentDetails)
+        nonZeroValue(valueToCharge)
     {
         Authorization memory auth = abi.decode(paymentDetails, (Authorization));
         ExtraData memory data = auth.extraData;
+
+        // Ensure valueToCharge doesn't exceed authorized amount
+        if (valueToCharge > auth.value) {
+            revert ValueLimitExceeded(valueToCharge);
+        }
 
         _validateFees(data.feeBps, data.feeRecipient);
 
         bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
 
-        _executeReceiveWithAuth(auth, value, paymentDetailsHash, signature);
-        emit PaymentCharged(paymentDetailsHash, value);
+        // Pull the full authorized amount from the buyer
+        _executeReceiveWithAuth(auth, auth.value, paymentDetailsHash, signature);
 
-        _handleFees(auth.token, data.captureAddress, data.feeRecipient, data.feeBps, value);
+        // Calculate difference to refund
+        uint256 refundAmount = auth.value - valueToCharge;
+
+        // Return excess funds to buyer if any
+        if (refundAmount > 0) {
+            _transfer(auth.token, auth.from, refundAmount);
+        }
+
+        emit PaymentCharged(paymentDetailsHash, valueToCharge);
+
+        // Handle fees only for the actual charged amount
+        _handleFees(auth.token, data.captureAddress, data.feeRecipient, data.feeBps, valueToCharge);
     }
 
     /// @notice Validates buyer signature and transfers funds from buyer to escrow.
     /// @dev Reverts if not called by operator.
-    function confirmAuthorization(uint256 value, bytes calldata paymentDetails, bytes calldata signature)
+    /// @dev If valueToConfirm is less than the authorized value in paymentDetails,
+    ///      the difference will be returned to the buyer.
+    function confirmAuthorization(uint256 valueToConfirm, bytes calldata paymentDetails, bytes calldata signature)
         external
         onlyOperator(paymentDetails)
-        nonZeroValue(value)
+        nonZeroValue(valueToConfirm)
     {
-        // TODO: for this function and for `charge`
-        // diff arg value v.s. auth.value
-        // if diff is nonzero, return the diff amount to the buyer at end of txn
-        // increment authorized storage only by what was kept
         Authorization memory auth = abi.decode(paymentDetails, (Authorization));
         ExtraData memory data = auth.extraData;
+
+        // Ensure valueToConfirm doesn't exceed authorized amount
+        if (valueToConfirm > auth.value) {
+            revert ValueLimitExceeded(valueToConfirm);
+        }
 
         _validateFees(data.feeBps, data.feeRecipient);
 
         bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
-        _executeReceiveWithAuth(auth, value, paymentDetailsHash, signature);
 
-        _authorized[paymentDetailsHash] += value; // todo only kept amount
-        emit AuthorizationIncreased(paymentDetailsHash, value);
+        // Pull the full authorized amount from the buyer
+        _executeReceiveWithAuth(auth, auth.value, paymentDetailsHash, signature);
+
+        // Calculate difference to refund
+        uint256 refundAmount = auth.value - valueToConfirm;
+
+        // Update authorized amount to only what we're keeping
+        _authorized[paymentDetailsHash] += valueToConfirm;
+        emit AuthorizationIncreased(paymentDetailsHash, valueToConfirm);
+
+        // Return excess funds to buyer if any
+        if (refundAmount > 0) {
+            _transfer(auth.token, auth.from, refundAmount);
+        }
     }
 
     /// @notice Cancel payment by revoking authorization and refunding all escrowed funds.
