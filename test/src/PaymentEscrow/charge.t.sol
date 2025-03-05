@@ -6,10 +6,8 @@ import {PaymentEscrowBase} from "../../base/PaymentEscrowBase.sol";
 
 contract ChargeTest is PaymentEscrowBase {
     function test_charge_succeeds_whenValueEqualsAuthorized(uint256 amount) public {
-        // Get buyer's current balance
         uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
 
-        // Assume reasonable values and ensure we don't exceed buyer's balance
         vm.assume(amount > 0 && amount <= buyerBalance);
 
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
@@ -53,10 +51,8 @@ contract ChargeTest is PaymentEscrowBase {
     }
 
     function test_charge_succeeds_whenValueLessThanAuthorized(uint256 authorizedAmount, uint256 chargeAmount) public {
-        // Get buyer's current balance
         uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
 
-        // Assume reasonable values and ensure we don't exceed buyer's balance
         vm.assume(authorizedAmount > 0 && authorizedAmount <= buyerBalance);
         vm.assume(chargeAmount > 0 && chargeAmount < authorizedAmount);
 
@@ -143,10 +139,8 @@ contract ChargeTest is PaymentEscrowBase {
     }
 
     function test_charge_allowsRefund(uint256 authorizedAmount) public {
-        // Get buyer's current balance
         uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
 
-        // Assume reasonable values and ensure we don't exceed buyer's balance
         vm.assume(authorizedAmount > 3 && authorizedAmount <= buyerBalance);
 
         uint256 chargeAmount = authorizedAmount / 2;
@@ -211,10 +205,8 @@ contract ChargeTest is PaymentEscrowBase {
     }
 
     function test_charge_reverts_whenValueExceedsAuthorized(uint256 authorizedAmount) public {
-        // Get buyer's current balance
         uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
 
-        // Assume reasonable values and ensure we don't exceed buyer's balance
         vm.assume(authorizedAmount > 0 && authorizedAmount <= buyerBalance);
         uint256 chargeAmount = authorizedAmount + 1; // Always exceeds authorized
 
@@ -242,7 +234,6 @@ contract ChargeTest is PaymentEscrowBase {
     }
 
     function test_charge_reverts_whenAuthorizationIsVoided(uint256 authorizedAmount) public {
-        // Get buyer's current balance
         uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
 
         // Assume reasonable values and ensure we don't exceed buyer's balance

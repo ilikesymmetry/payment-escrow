@@ -5,8 +5,10 @@ import {PaymentEscrow} from "../../../src/PaymentEscrow.sol";
 import {PaymentEscrowBase} from "../../base/PaymentEscrowBase.sol";
 
 contract VoidAuthorizationTest is PaymentEscrowBase {
-    function test_voidAuthorization_succeeds_withNoEscrowedFunds() public {
-        uint256 authorizedAmount = 100e6;
+    function test_voidAuthorization_succeeds_withNoEscrowedFunds(uint256 authorizedAmount) public {
+        uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
+
+        vm.assume(authorizedAmount > 0 && authorizedAmount <= buyerBalance);
 
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),
@@ -48,8 +50,10 @@ contract VoidAuthorizationTest is PaymentEscrowBase {
         paymentEscrow.confirmAuthorization(authorizedAmount, paymentDetails, signature);
     }
 
-    function test_voidAuthorization_succeeds_withEscrowedFunds() public {
-        uint256 authorizedAmount = 100e6;
+    function test_voidAuthorization_succeeds_withEscrowedFunds(uint256 authorizedAmount) public {
+        uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
+
+        vm.assume(authorizedAmount > 0 && authorizedAmount <= buyerBalance);
 
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),
@@ -102,8 +106,10 @@ contract VoidAuthorizationTest is PaymentEscrowBase {
         assertEq(mockERC3009Token.balanceOf(address(paymentEscrow)), 0);
     }
 
-    function test_voidAuthorization_succeeds_whenAlreadyVoided() public {
-        uint256 authorizedAmount = 100e6;
+    function test_voidAuthorization_succeeds_whenAlreadyVoided(uint256 authorizedAmount) public {
+        uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
+
+        vm.assume(authorizedAmount > 0 && authorizedAmount <= buyerBalance);
 
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),
@@ -164,8 +170,10 @@ contract VoidAuthorizationTest is PaymentEscrowBase {
         paymentEscrow.voidAuthorization(paymentDetails);
     }
 
-    function test_voidAuthorization_succeeds_whenCalledByCaptureAddress() public {
-        uint256 authorizedAmount = 100e6;
+    function test_voidAuthorization_succeeds_whenCalledByCaptureAddress(uint256 authorizedAmount) public {
+        uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
+
+        vm.assume(authorizedAmount > 0 && authorizedAmount <= buyerBalance);
 
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),

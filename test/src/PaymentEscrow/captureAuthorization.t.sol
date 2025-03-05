@@ -6,10 +6,8 @@ import {PaymentEscrowBase} from "../../base/PaymentEscrowBase.sol";
 
 contract CaptureAuthorizationTest is PaymentEscrowBase {
     function test_captureAuthorization_succeeds_withFullAmount(uint256 authorizedAmount) public {
-        // Get buyer's current balance
         uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
 
-        // Assume reasonable values and ensure we don't exceed buyer's balance
         vm.assume(authorizedAmount > 0 && authorizedAmount <= buyerBalance);
 
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
@@ -59,10 +57,8 @@ contract CaptureAuthorizationTest is PaymentEscrowBase {
     }
 
     function test_captureAuthorization_succeeds_withPartialAmount(uint256 authorizedAmount) public {
-        // Get buyer's current balance
         uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
 
-        // Assume reasonable values and ensure we don't exceed buyer's balance
         vm.assume(authorizedAmount > 1 && authorizedAmount <= buyerBalance);
         uint256 captureAmount = authorizedAmount / 2;
 
@@ -113,10 +109,8 @@ contract CaptureAuthorizationTest is PaymentEscrowBase {
     }
 
     function test_captureAuthorization_succeeds_withMultipleCaptures(uint256 authorizedAmount) public {
-        // Get buyer's current balance
         uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
 
-        // Assume reasonable values and ensure we don't exceed buyer's balance
         vm.assume(authorizedAmount > 2 && authorizedAmount <= buyerBalance);
         uint256 firstCaptureAmount = authorizedAmount / 2;
         uint256 secondCaptureAmount = authorizedAmount - firstCaptureAmount;
@@ -178,10 +172,8 @@ contract CaptureAuthorizationTest is PaymentEscrowBase {
     }
 
     function test_captureAuthorization_reverts_whenInsufficientAuthorization(uint256 authorizedAmount) public {
-        // Get buyer's current balance
         uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
 
-        // Assume reasonable values and ensure we don't exceed buyer's balance
         vm.assume(authorizedAmount > 0 && authorizedAmount <= buyerBalance);
         uint256 captureAmount = authorizedAmount + 1; // Try to capture more than authorized
 

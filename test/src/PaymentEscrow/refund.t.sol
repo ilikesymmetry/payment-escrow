@@ -6,10 +6,8 @@ import {PaymentEscrowBase} from "../../base/PaymentEscrowBase.sol";
 
 contract RefundTest is PaymentEscrowBase {
     function test_refund_succeeds_whenCalledByOperator(uint256 authorizedAmount, uint256 refundAmount) public {
-        // Get buyer's current balance
         uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
 
-        // Assume reasonable values and ensure we don't exceed buyer's balance
         vm.assume(authorizedAmount > 0 && authorizedAmount <= buyerBalance);
         vm.assume(refundAmount > 0 && refundAmount <= authorizedAmount);
 
@@ -68,10 +66,8 @@ contract RefundTest is PaymentEscrowBase {
     }
 
     function test_refund_succeeds_whenCalledByCaptureAddress(uint256 authorizedAmount, uint256 refundAmount) public {
-        // Get buyer's current balance
         uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
 
-        // Assume reasonable values and ensure we don't exceed buyer's balance
         vm.assume(authorizedAmount > 0 && authorizedAmount <= buyerBalance);
         vm.assume(refundAmount > 0 && refundAmount <= authorizedAmount);
 
@@ -130,10 +126,8 @@ contract RefundTest is PaymentEscrowBase {
     }
 
     function test_refund_reverts_whenRefundExceedsCaptured(uint256 authorizedAmount) public {
-        // Get buyer's current balance
         uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
 
-        // Assume reasonable values and ensure we don't exceed buyer's balance
         vm.assume(authorizedAmount > 1 && authorizedAmount <= buyerBalance); // Changed from > 0 to > 1
         uint256 chargeAmount = authorizedAmount / 2; // Charge only half
         uint256 refundAmount = authorizedAmount; // Try to refund full amount

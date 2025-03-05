@@ -6,10 +6,8 @@ import {PaymentEscrowBase} from "../../base/PaymentEscrowBase.sol";
 
 contract ConfirmAuthorizationTest is PaymentEscrowBase {
     function test_confirmAuthorization_succeeds_whenValueEqualsAuthorized(uint256 amount) public {
-        // Get buyer's current balance
         uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
 
-        // Assume reasonable values and ensure we don't exceed buyer's balance
         vm.assume(amount > 0 && amount <= buyerBalance);
 
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
@@ -54,10 +52,8 @@ contract ConfirmAuthorizationTest is PaymentEscrowBase {
         uint256 authorizedAmount,
         uint256 confirmAmount
     ) public {
-        // Get buyer's current balance
         uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
 
-        // Assume reasonable values and ensure we don't exceed buyer's balance
         vm.assume(authorizedAmount > 0 && authorizedAmount <= buyerBalance);
         vm.assume(confirmAmount > 0 && confirmAmount < authorizedAmount);
 
@@ -103,10 +99,8 @@ contract ConfirmAuthorizationTest is PaymentEscrowBase {
     }
 
     function test_confirmAuthorization_reverts_whenValueExceedsAuthorized(uint256 authorizedAmount) public {
-        // Get buyer's current balance
         uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
 
-        // Assume reasonable values and ensure we don't exceed buyer's balance
         vm.assume(authorizedAmount > 0 && authorizedAmount <= buyerBalance);
         uint256 confirmAmount = authorizedAmount + 1; // Always exceeds authorized
 
@@ -145,10 +139,8 @@ contract ConfirmAuthorizationTest is PaymentEscrowBase {
     }
 
     function test_confirmAuthorization_reverts_whenAuthorizationIsVoided(uint256 authorizedAmount) public {
-        // Get buyer's current balance
         uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
 
-        // Assume reasonable values and ensure we don't exceed buyer's balance
         vm.assume(authorizedAmount > 0 && authorizedAmount <= buyerBalance);
 
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
@@ -180,11 +172,9 @@ contract ConfirmAuthorizationTest is PaymentEscrowBase {
             BUYER_EOA_PK
         );
 
-        // First void the authorization
         vm.prank(operator);
         paymentEscrow.voidAuthorization(paymentDetails);
 
-        // Then try to confirm the voided authorization
         vm.prank(operator);
         vm.expectRevert(abi.encodeWithSelector(PaymentEscrow.VoidAuthorization.selector, paymentDetailsHash));
         paymentEscrow.confirmAuthorization(authorizedAmount, paymentDetails, signature);
