@@ -1,66 +1,55 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import {PublicERC6492Validator} from "spend-permissions/PublicERC6492Validator.sol";
-import {SpendPermissionManager} from "spend-permissions/SpendPermissionManager.sol";
-import {CoinbaseSmartWallet} from "smart-wallet/CoinbaseSmartWallet.sol";
-import {SpendPermissionManagerBase} from "spend-permissions/../test/base/SpendPermissionManagerBase.sol";
-import {MockERC20} from "solady/../test/utils/mocks/MockERC20.sol";
-import {MockReceiver} from "solady/../test/utils/mocks/MockReceiver.sol";
-
+import {Test} from "forge-std/Test.sol";
 import {PaymentEscrow} from "../../src/PaymentEscrow.sol";
+import {PublicERC6492Validator} from "spend-permissions/PublicERC6492Validator.sol";
+import {IERC3009} from "../../src/IERC3009.sol";
+import {MockERC3009Token} from "../mocks/MockERC3009Token.sol";
 
-contract PaymentEscrowBase is SpendPermissionManagerBase {
-    PublicERC6492Validator publicERC6492Validator2;
-    SpendPermissionManager spendPermissionManager;
-    PaymentEscrow paymentEscrow;
-    MockERC20 mockERC20;
+contract PaymentEscrowBase is Test {
+    PaymentEscrow public paymentEscrow;
+    PublicERC6492Validator public erc6492Validator;
+    MockERC3009Token public mockERC3009Token;
 
-    function _setUpPaymentEscrow() internal {
-        _initializeSpendPermissionManager();
-        publicERC6492Validator2 = new PublicERC6492Validator();
-        spendPermissionManager = new SpendPermissionManager(publicERC6492Validator2, address(magicSpend));
-        paymentEscrow = new PaymentEscrow(spendPermissionManager);
-        mockERC20 = new MockERC20("mockERC20", "MOCK", 18);
+    address public operator;
+    address public captureAddress;
+    address public buyerEOA;
+    address public feeRecipient;
+    uint16 constant FEE_BPS = 100; // 1%
+    uint256 internal constant BUYER_EOA_PK = 0x1234;
 
-        vm.prank(owner);
-        account.addOwnerAddress(address(spendPermissionManager));
+    function setUp() public virtual {
+        erc6492Validator = new PublicERC6492Validator();
+        paymentEscrow = new PaymentEscrow(address(erc6492Validator));
+        mockERC3009Token = new MockERC3009Token("Mock USDC", "mUSDC", 6);
+
+        operator = makeAddr("operator");
+        captureAddress = makeAddr("captureAddress");
+        buyerEOA = vm.addr(BUYER_EOA_PK); // Derive address from private key
+        feeRecipient = makeAddr("feeRecipient");
+
+        mockERC3009Token.mint(buyerEOA, 1000e6);
     }
 
-    function _createPaymentSpendPermission(
-        address token,
-        uint160 value,
-        address operator,
-        address merchant,
-        uint16 feeBps,
-        address feeRecipient
-    ) internal view returns (SpendPermissionManager.SpendPermission memory permission) {
-        return SpendPermissionManager.SpendPermission({
-            account: address(account),
-            spender: address(paymentEscrow),
-            token: token,
-            start: uint48(vm.getBlockTimestamp()),
-            end: type(uint48).max,
-            period: type(uint48).max,
-            allowance: value,
-            salt: 0,
-            extraData: abi.encode(operator, merchant, feeBps, feeRecipient)
-        });
-    }
+    function _signERC3009(
+        address from,
+        address to,
+        uint256 value,
+        uint256 validAfter,
+        uint256 validBefore,
+        bytes32 nonce,
+        uint256 signerPk
+    ) internal view returns (bytes memory) {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                mockERC3009Token.RECEIVE_WITH_AUTHORIZATION_TYPEHASH(), from, to, value, validAfter, validBefore, nonce
+            )
+        );
 
-    function _signPaymentSpendPermission(SpendPermissionManager.SpendPermission memory permission)
-        internal
-        view
-        returns (bytes memory)
-    {
-        bytes32 permissionHash = spendPermissionManager.getHash(permission);
-        bytes32 replaySafeHash = CoinbaseSmartWallet(payable(permission.account)).replaySafeHash(permissionHash);
-        bytes memory signature = _sign(ownerPk, replaySafeHash);
-        bytes memory wrappedSignature = _applySignatureWrapper(0, signature);
-        return wrappedSignature;
-    }
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", mockERC3009Token.DOMAIN_SEPARATOR(), structHash));
 
-    function _createReceiver() internal returns (address) {
-        return address(new MockReceiver());
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerPk, digest);
+        return abi.encodePacked(r, s, v);
     }
 }

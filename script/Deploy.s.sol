@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Script, console2} from "forge-std/Script.sol";
-import {Strings} from "openzeppelin-contracts/contracts/utils/Strings.sol";
-import {SpendPermissionManager} from "spend-permissions/SpendPermissionManager.sol";
-
+import {Script} from "forge-std/Script.sol";
 import {PaymentEscrow} from "../src/PaymentEscrow.sol";
+import {PublicERC6492Validator} from "spend-permissions/PublicERC6492Validator.sol";
 
 /**
  * @notice Deploy the PaymentEscrow contract.
@@ -15,12 +13,9 @@ import {PaymentEscrow} from "../src/PaymentEscrow.sol";
  */
 contract Deploy is Script {
     function run() public {
-        // https://github.com/coinbase/spend-permissions/releases/tag/v1.0.0
-        address spendPermissionManager = 0xf85210B21cC50302F477BA56686d2019dC9b67Ad;
-
         vm.startBroadcast();
 
-        new PaymentEscrow{salt: 0}(SpendPermissionManager(payable(spendPermissionManager)));
+        new PaymentEscrow{salt: 0}(address(new PublicERC6492Validator()));
 
         vm.stopBroadcast();
     }
