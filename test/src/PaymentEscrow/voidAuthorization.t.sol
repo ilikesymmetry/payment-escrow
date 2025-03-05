@@ -29,7 +29,7 @@ contract VoidAuthorizationTest is PaymentEscrowBase {
 
         vm.prank(operator);
         vm.expectEmit(true, false, false, false);
-        emit PaymentEscrow.AuthorizationVoided(paymentDetailsHash);
+        emit PaymentEscrow.PaymentVoided(paymentDetailsHash);
         paymentEscrow.voidAuthorization(paymentDetails);
 
         bytes memory signature = _signERC3009(
@@ -90,7 +90,7 @@ contract VoidAuthorizationTest is PaymentEscrowBase {
         // Then void the authorization
         vm.prank(operator);
         vm.expectEmit(true, false, false, false);
-        emit PaymentEscrow.AuthorizationVoided(paymentDetailsHash);
+        emit PaymentEscrow.PaymentVoided(paymentDetailsHash);
         vm.expectEmit(true, false, false, true);
         emit PaymentEscrow.AuthorizationDecreased(paymentDetailsHash, authorizedAmount);
         vm.expectEmit(true, false, false, false);
@@ -131,7 +131,7 @@ contract VoidAuthorizationTest is PaymentEscrowBase {
         // Void the authorization second time
         vm.prank(operator);
         vm.expectEmit(true, false, false, false);
-        emit PaymentEscrow.AuthorizationVoided(paymentDetailsHash);
+        emit PaymentEscrow.PaymentVoided(paymentDetailsHash);
         paymentEscrow.voidAuthorization(paymentDetails);
     }
 
@@ -206,7 +206,7 @@ contract VoidAuthorizationTest is PaymentEscrowBase {
         // Then void the authorization as captureAddress
         vm.prank(captureAddress);
         vm.expectEmit(true, false, false, false);
-        emit PaymentEscrow.AuthorizationVoided(paymentDetailsHash);
+        emit PaymentEscrow.PaymentVoided(paymentDetailsHash);
         vm.expectEmit(true, false, false, true);
         emit PaymentEscrow.AuthorizationDecreased(paymentDetailsHash, authorizedAmount);
         vm.expectEmit(true, false, false, false);
@@ -256,7 +256,7 @@ contract VoidAuthorizationTest is PaymentEscrowBase {
 
         // Record all expected events in order
         vm.expectEmit(true, false, false, false);
-        emit PaymentEscrow.AuthorizationVoided(paymentDetailsHash);
+        emit PaymentEscrow.PaymentVoided(paymentDetailsHash);
 
         vm.expectEmit(true, false, false, true);
         emit PaymentEscrow.AuthorizationDecreased(paymentDetailsHash, authorizedAmount);
