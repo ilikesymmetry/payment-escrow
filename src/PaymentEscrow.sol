@@ -11,7 +11,7 @@ contract PaymentEscrow {
     struct ExtraData {
         uint256 salt;
         address operator;
-        address merchant;
+        address captureAddress;
         uint16 feeBps;
         address feeRecipient;
     }
@@ -63,7 +63,7 @@ contract PaymentEscrow {
     error ValueLimitExceeded(uint256 value);
     error PermissionApprovalFailed();
     error InvalidSender(address sender, address expected);
-    error InvalidRefundSender(address sender, address operator, address merchant);
+    error InvalidRefundSender(address sender, address operator, address captureAddress);
     error RefundExceedsCapture(uint256 refund, uint256 captured);
     error FeeBpsOverflow(uint16 feeBps);
     error ZeroFeeRecipient();
@@ -89,7 +89,7 @@ contract PaymentEscrow {
 
     receive() external payable {}
 
-    /// @notice Transfers funds from buyer to merchant.
+    /// @notice Transfers funds from buyer to captureAddress.
     function charge(uint256 value, bytes calldata paymentDetails, bytes calldata signature)
         external
         onlyOperator(paymentDetails)
@@ -104,7 +104,7 @@ contract PaymentEscrow {
         _executeReceiveWithAuth(auth, value, paymentDetailsHash, signature);
         emit Charged(paymentDetailsHash, value);
 
-        _handleFees(auth.token, data.merchant, data.feeRecipient, data.feeBps, value);
+        _handleFees(auth.token, data.captureAddress, data.feeRecipient, data.feeBps, value);
     }
 
     /// @notice Validates buyer signature and transfers funds from buyer to escrow.
@@ -141,7 +141,7 @@ contract PaymentEscrow {
     // }
 
     // /// @notice Return previously-escrowed funds to buyer.
-    // /// @dev Reverts if not called by operator or merchant.
+    // /// @dev Reverts if not called by operator or captureAddress.
     // function decreaseAuthorization(uint256 value, bytes calldata paymentDetails)
     //     external
     //     onlyOperator(paymentDetails)
@@ -157,14 +157,14 @@ contract PaymentEscrow {
 
     //     _authorized[paymentDetailsHash] = authorizedValue - value;
     //     emit AuthorizationDecreased(paymentDetailsHash, value);
-    //     _transfer(auth.token, data.merchant, value);
+    //     _transfer(auth.token, data.captureAddress, value);
     // }
 
     /// @notice Cancel payment by revoking authorization and refunding all escrowed funds.
-    /// @dev Reverts if not called by operator or merchant.
+    /// @dev Reverts if not called by operator or captureAddress.
     function voidAuthorization(bytes calldata paymentDetails) external onlyOperator(paymentDetails) {
         Authorization memory auth = abi.decode(paymentDetails, (Authorization));
-        ExtraData memory data = auth.extraData;
+        // ExtraData memory data = auth.extraData;
         bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
 
         // TODO: revoke authorization -- via the 3009 revoke function (can't, needs signature)
@@ -180,7 +180,7 @@ contract PaymentEscrow {
         _transfer(auth.token, auth.from, authorizedValue);
     }
 
-    /// @notice Transfer previously-escrowed funds to merchant.
+    /// @notice Transfer previously-escrowed funds to captureAddress.
     /// @dev Reverts if not called by operator.
     /// @dev Partial capture with custom value parameter and calling multiple times.
     /// TODO: maybe just pass the hash here and anything else needed?
@@ -210,18 +210,18 @@ contract PaymentEscrow {
         if (feeAmount > 0) _transfer(auth.token, data.feeRecipient, feeAmount);
 
         // transfer payment
-        if (value > 0) _transfer(auth.token, data.merchant, value);
+        if (value > 0) _transfer(auth.token, data.captureAddress, value);
     }
 
     /// @notice Return previously-captured tokens to buyer.
-    /// @dev Reverts if not called by operator or merchant.
+    /// @dev Reverts if not called by operator or captureAddress.
     function refund(uint256 value, bytes calldata paymentDetails) external nonZeroValue(value) {
         Authorization memory auth = abi.decode(paymentDetails, (Authorization));
         ExtraData memory data = auth.extraData;
 
-        // check sender is operator or merchant
-        if (msg.sender != data.operator && msg.sender != data.merchant) {
-            revert InvalidRefundSender(msg.sender, data.operator, data.merchant);
+        // check sender is operator or captureAddress
+        if (msg.sender != data.operator && msg.sender != data.captureAddress) {
+            revert InvalidRefundSender(msg.sender, data.operator, data.captureAddress);
         }
 
         // limit refund value to previously captured
@@ -233,7 +233,7 @@ contract PaymentEscrow {
         emit Refunded(paymentDetailsHash, msg.sender, value);
 
         // return tokens to buyer
-        SafeTransferLib.safeTransferFrom(auth.token, msg.sender, data.merchant, value);
+        SafeTransferLib.safeTransferFrom(auth.token, msg.sender, data.captureAddress, value);
     }
 
     /// TODO: consider refund liquidity provider i.e. reverse escrow payment
@@ -274,7 +274,7 @@ contract PaymentEscrow {
     }
 
     /// @notice Calculate and transfer fees
-    function _handleFees(address token, address merchant, address feeRecipient, uint16 feeBps, uint256 value)
+    function _handleFees(address token, address captureAddress, address feeRecipient, uint16 feeBps, uint256 value)
         internal
         returns (uint256 remainingValue)
     {
@@ -282,7 +282,7 @@ contract PaymentEscrow {
         remainingValue = value - feeAmount;
 
         if (feeAmount > 0) _transfer(token, feeRecipient, feeAmount);
-        if (remainingValue > 0) _transfer(token, merchant, remainingValue);
+        if (remainingValue > 0) _transfer(token, captureAddress, remainingValue);
     }
 
     /// @notice Transfer tokens from the escrow to a recipient.

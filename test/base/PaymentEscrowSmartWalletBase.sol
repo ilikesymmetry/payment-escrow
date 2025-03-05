@@ -69,10 +69,11 @@ contract PaymentEscrowSmartWalletBase is PaymentEscrowBase {
                     to: to,
                     validAfter: validAfter,
                     validBefore: validBefore,
+                    value: value,
                     extraData: PaymentEscrow.ExtraData({
                         salt: uint256(0),
                         operator: operator,
-                        merchant: merchant,
+                        captureAddress: captureAddress,
                         feeBps: FEE_BPS,
                         feeRecipient: feeRecipient
                     })
@@ -128,10 +129,11 @@ contract PaymentEscrowSmartWalletBase is PaymentEscrowBase {
             to: address(paymentEscrow),
             validAfter: validAfter,
             validBefore: validBefore,
+            value: value,
             extraData: PaymentEscrow.ExtraData({
                 salt: uint256(nonce),
                 operator: operator,
-                merchant: merchant,
+                captureAddress: captureAddress,
                 feeBps: FEE_BPS,
                 feeRecipient: feeRecipient
             })

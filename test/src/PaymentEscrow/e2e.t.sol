@@ -18,10 +18,11 @@ contract PaymentEscrowE2ETest is PaymentEscrowBase {
             to: address(paymentEscrow),
             validAfter: validAfter,
             validBefore: validBefore,
+            value: amount,
             extraData: PaymentEscrow.ExtraData({
                 salt: 0, // Keep salt as 0
                 operator: operator,
-                merchant: merchant,
+                captureAddress: captureAddress,
                 feeBps: FEE_BPS,
                 feeRecipient: feeRecipient
             })
@@ -37,7 +38,7 @@ contract PaymentEscrowE2ETest is PaymentEscrowBase {
         paymentEscrow.charge(amount, paymentDetails, signature);
 
         uint256 feeAmount = amount * FEE_BPS / 10_000;
-        assertEq(mockERC3009Token.balanceOf(merchant), amount - feeAmount);
+        assertEq(mockERC3009Token.balanceOf(captureAddress), amount - feeAmount);
         assertEq(mockERC3009Token.balanceOf(feeRecipient), feeAmount);
     }
 }
@@ -51,16 +52,17 @@ contract PaymentEscrowSmartWalletE2ETest is PaymentEscrowSmartWalletBase {
             to: address(paymentEscrow),
             validAfter: block.timestamp - 1,
             validBefore: block.timestamp + 1 days,
+            value: 100e6,
             extraData: PaymentEscrow.ExtraData({
                 salt: uint256(0),
                 operator: operator,
-                merchant: merchant,
+                captureAddress: captureAddress,
                 feeBps: FEE_BPS,
                 feeRecipient: feeRecipient
             })
         });
         bytes memory paymentDetails = abi.encode(auth);
-        bytes32 nonce = keccak256(paymentDetails); // Use paymentDetailsHash as nonce
+        // bytes32 nonce = keccak256(paymentDetails); // Use paymentDetailsHash as nonce
 
         // Create signature
         bytes memory signature = _signSmartWalletERC3009(
@@ -79,7 +81,7 @@ contract PaymentEscrowSmartWalletE2ETest is PaymentEscrowSmartWalletBase {
         paymentEscrow.charge(amount, paymentDetails, signature);
 
         uint256 feeAmount = amount * FEE_BPS / 10_000;
-        assertEq(mockERC3009Token.balanceOf(merchant), amount - feeAmount);
+        assertEq(mockERC3009Token.balanceOf(captureAddress), amount - feeAmount);
         assertEq(mockERC3009Token.balanceOf(feeRecipient), feeAmount);
     }
 
@@ -91,16 +93,17 @@ contract PaymentEscrowSmartWalletE2ETest is PaymentEscrowSmartWalletBase {
             to: address(paymentEscrow),
             validAfter: block.timestamp - 1,
             validBefore: block.timestamp + 1 days,
+            value: 100e6,
             extraData: PaymentEscrow.ExtraData({
                 salt: uint256(0),
                 operator: operator,
-                merchant: merchant,
+                captureAddress: captureAddress,
                 feeBps: FEE_BPS,
                 feeRecipient: feeRecipient
             })
         });
         bytes memory paymentDetails = abi.encode(auth);
-        bytes32 nonce = keccak256(paymentDetails); // Use paymentDetailsHash as nonce
+        // bytes32 nonce = keccak256(paymentDetails); // Use paymentDetailsHash as nonce
 
         // Create signature
         bytes memory signature = _signSmartWalletERC3009WithERC6492(
@@ -119,7 +122,7 @@ contract PaymentEscrowSmartWalletE2ETest is PaymentEscrowSmartWalletBase {
         paymentEscrow.charge(amount, paymentDetails, signature);
 
         uint256 feeAmount = amount * FEE_BPS / 10_000;
-        assertEq(mockERC3009Token.balanceOf(merchant), amount - feeAmount);
+        assertEq(mockERC3009Token.balanceOf(captureAddress), amount - feeAmount);
         assertEq(mockERC3009Token.balanceOf(feeRecipient), feeAmount);
     }
 }

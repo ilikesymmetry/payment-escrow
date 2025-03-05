@@ -13,7 +13,7 @@ contract PaymentEscrowBase is Test {
     MockERC3009Token public mockERC3009Token;
 
     address public operator;
-    address public merchant;
+    address public captureAddress;
     address public buyerEOA;
     address public feeRecipient;
     uint16 constant FEE_BPS = 100; // 1%
@@ -25,7 +25,7 @@ contract PaymentEscrowBase is Test {
         mockERC3009Token = new MockERC3009Token("Mock USDC", "mUSDC", 6);
 
         operator = makeAddr("operator");
-        merchant = makeAddr("merchant");
+        captureAddress = makeAddr("captureAddress");
         buyerEOA = vm.addr(BUYER_EOA_PK); // Derive address from private key
         feeRecipient = makeAddr("feeRecipient");
 

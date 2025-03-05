@@ -14,11 +14,11 @@
 //         vm.assume(value > 0);
 //         vm.assume(feeBps <= 10_000);
 //         address operator = _createReceiver();
-//         address merchant = _createReceiver();
+//         address captureAddress = _createReceiver();
 //         address feeRecipient = _createReceiver();
 
 //         SpendPermissionManager.SpendPermission memory permission =
-//             _createPaymentSpendPermission(address(mockERC20), value, operator, merchant, feeBps, feeRecipient);
+//             _createPaymentSpendPermission(address(mockERC20), value, operator, captureAddress, feeBps, feeRecipient);
 //         bytes memory signature = _signPaymentSpendPermission(permission);
 
 //         mockERC20.mint(address(account), value);
@@ -34,11 +34,11 @@
 //         vm.assume(value > 0);
 //         vm.assume(feeBps <= 10_000);
 //         address operator = _createReceiver();
-//         address merchant = _createReceiver();
+//         address captureAddress = _createReceiver();
 //         address feeRecipient = _createReceiver();
 
 //         SpendPermissionManager.SpendPermission memory permission =
-//             _createPaymentSpendPermission(NATIVE_TOKEN, value, operator, merchant, feeBps, feeRecipient);
+//             _createPaymentSpendPermission(NATIVE_TOKEN, value, operator, captureAddress, feeBps, feeRecipient);
 //         bytes memory signature = _signPaymentSpendPermission(permission);
 
 //         vm.deal(address(account), value);
