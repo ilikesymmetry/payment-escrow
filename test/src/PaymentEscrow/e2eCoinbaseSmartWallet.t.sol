@@ -48,6 +48,10 @@ contract PaymentEscrowSmartWalletE2ETest is PaymentEscrowSmartWalletBase {
     }
 
     function test_charge_succeeds_withCounterfactualSmartWallet() public {
+        // Verify smart wallet is not deployed yet
+        address wallet = address(smartWalletCounterfactual);
+        assertEq(wallet.code.length, 0, "Smart wallet should not be deployed yet");
+
         // Create payment details
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),

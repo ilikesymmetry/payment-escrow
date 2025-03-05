@@ -9,20 +9,6 @@ import {PublicERC6492Validator} from "spend-permissions/PublicERC6492Validator.s
 /// @dev This contract handles payment flows where a buyer authorizes a future payment,
 ///      which can then be captured in parts or refunded by an operator.
 contract PaymentEscrow {
-    /// @notice Additional data to complement ERC-3009 base fields
-    /// @param salt A source of entropy to ensure unique hashes across different payment details
-    /// @param operator Address authorized to capture and void payments
-    /// @param captureAddress Address that receives the captured payment (minus fees)
-    /// @param feeBps Fee percentage in basis points (1/100th of a percent)
-    /// @param feeRecipient Address that receives the fee portion of payments
-    struct ExtraData {
-        uint256 salt;
-        address operator;
-        address captureAddress;
-        uint16 feeBps;
-        address feeRecipient;
-    }
-
     /// @notice ERC-3009 authorization with additional payment routing data
     /// @param token The ERC-3009 token contract address
     /// @param from The buyer's address authorizing the payment
@@ -39,6 +25,20 @@ contract PaymentEscrow {
         uint256 validBefore;
         uint256 value;
         ExtraData extraData;
+    }
+
+    /// @notice Additional data to complement ERC-3009 base fields
+    /// @param salt A source of entropy to ensure unique hashes across different payment details
+    /// @param operator Address authorized to capture and void payments
+    /// @param captureAddress Address that receives the captured payment (minus fees)
+    /// @param feeBps Fee percentage in basis points (1/100th of a percent)
+    /// @param feeRecipient Address that receives the fee portion of payments
+    struct ExtraData {
+        uint256 salt;
+        address operator;
+        address captureAddress;
+        uint16 feeBps;
+        address feeRecipient;
     }
 
     /// @notice ERC-6492 magic value
@@ -272,15 +272,6 @@ contract PaymentEscrow {
         // Return tokens to buyer
         SafeTransferLib.safeTransferFrom(auth.token, msg.sender, auth.from, value);
     }
-
-    /// TODO: consider refund liquidity provider i.e. reverse escrow payment
-    /// stripe could sign a 3009 auth that will only be used for the refund intended by stripe
-    /// operator can redeem 3009 to pull funds from stripe into escrow, and then atomically route to the buyer
-    /// How to ensure that stripe's signed 3009 auth is actually used for a refund and not just used to buy something?
-
-    /// Maybe stripe signs a 3009 auth for the refund, and then operator can redeem that 3009 auth to pull funds from stripe into escrow
-    /// original paymentDetails hash for the original purchase could be hashed (twice) into the nonce that gets signed over (basically incompatible hash scheme)
-    ///
 
     /// @notice Execute ERC3009 receiveWithAuthorization with signature validation
     /// @param auth Authorization struct containing transfer details
