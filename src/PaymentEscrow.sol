@@ -41,6 +41,9 @@ contract PaymentEscrow {
     /// @dev Used to limit amount that can be refunded post-capture.
     mapping(bytes32 paymentDetailsHash => uint256 value) internal _captured;
 
+    /// @notice Tracks which payment authorizations have been voided
+    mapping(bytes32 paymentDetailsHash => bool isVoid) internal _voided;
+
     /// @notice Payment charged to buyer and immediately captured.
     event PaymentCharged(bytes32 indexed paymentDetailsHash, uint256 value);
 
@@ -59,6 +62,9 @@ contract PaymentEscrow {
     /// @notice Payment refunded to buyer.
     event PaymentRefunded(bytes32 indexed paymentDetailsHash, address indexed refunder, uint256 value);
 
+    /// @notice Emitted when a payment authorization is voided
+    event AuthorizationVoided(bytes32 indexed paymentDetailsHash);
+
     error InsufficientAuthorization(bytes32 paymentDetailsHash, uint256 authorizedValue, uint256 requestedValue);
     error ValueLimitExceeded(uint256 value);
     error PermissionApprovalFailed();
@@ -70,6 +76,7 @@ contract PaymentEscrow {
     error ZeroValue();
     error Unsupported();
     error InvalidSignature();
+    error VoidAuthorization(bytes32 paymentDetailsHash);
 
     constructor(address _erc6492Validator) {
         erc6492Validator = PublicERC6492Validator(_erc6492Validator);
@@ -165,15 +172,22 @@ contract PaymentEscrow {
 
     /// @notice Cancel payment by revoking authorization and refunding all escrowed funds.
     /// @dev Reverts if not called by operator or captureAddress.
-    function voidAuthorization(bytes calldata paymentDetails) external onlyOperator(paymentDetails) {
+    function voidAuthorization(bytes calldata paymentDetails) external {
         Authorization memory auth = abi.decode(paymentDetails, (Authorization));
-        // ExtraData memory data = auth.extraData;
+        ExtraData memory data = auth.extraData;
+
+        // Check sender is operator or captureAddress
+        if (msg.sender != data.operator && msg.sender != data.captureAddress) {
+            revert InvalidRefundSender(msg.sender, data.operator, data.captureAddress);
+        }
+
         bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
 
-        // TODO: revoke authorization -- via the 3009 revoke function (can't, needs signature)
-        // could add a voiding storage to this contract to revoke here
+        // Mark the authorization as void
+        _voided[paymentDetailsHash] = true;
+        emit AuthorizationVoided(paymentDetailsHash);
 
-        // early return if no authorized value
+        // Return any escrowed funds
         uint256 authorizedValue = _authorized[paymentDetailsHash];
         if (authorizedValue == 0) return;
 
@@ -236,7 +250,7 @@ contract PaymentEscrow {
         emit PaymentRefunded(paymentDetailsHash, msg.sender, value);
 
         // return tokens to buyer
-        SafeTransferLib.safeTransferFrom(auth.token, msg.sender, data.captureAddress, value);
+        SafeTransferLib.safeTransferFrom(auth.token, msg.sender, auth.from, value);
     }
 
     /// TODO: consider refund liquidity provider i.e. reverse escrow payment
@@ -255,6 +269,11 @@ contract PaymentEscrow {
         bytes32 paymentDetailsHash,
         bytes calldata signature
     ) internal {
+        // Check if authorization has been voided
+        if (_voided[paymentDetailsHash]) {
+            revert VoidAuthorization(paymentDetailsHash);
+        }
+
         bytes memory innerSignature = signature;
         if (signature.length >= 32 && bytes32(signature[signature.length - 32:]) == ERC6492_MAGIC_VALUE) {
             // Deploy smart wallet if needed. This version of PublicERC6492Validator does not include the final ecrecover

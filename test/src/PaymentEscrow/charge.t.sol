@@ -132,4 +132,89 @@ contract ChargeTest is PaymentEscrowBase {
         vm.expectRevert(abi.encodeWithSelector(PaymentEscrow.ValueLimitExceeded.selector, valueToCharge));
         paymentEscrow.charge(valueToCharge, paymentDetails, signature);
     }
+
+    function test_charge_reverts_whenAuthorizationIsVoided() public {
+        uint256 authorizedAmount = 100e6;
+        uint256 valueToCharge = authorizedAmount;
+
+        PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
+            token: address(mockERC3009Token),
+            from: buyerEOA,
+            to: address(paymentEscrow),
+            validAfter: block.timestamp - 1,
+            validBefore: block.timestamp + 1 days,
+            value: authorizedAmount,
+            extraData: PaymentEscrow.ExtraData({
+                salt: 0,
+                operator: operator,
+                captureAddress: captureAddress,
+                feeBps: FEE_BPS,
+                feeRecipient: feeRecipient
+            })
+        });
+
+        bytes memory paymentDetails = abi.encode(auth);
+        bytes32 paymentDetailsHash = keccak256(paymentDetails);
+
+        bytes memory signature = _signERC3009(
+            buyerEOA,
+            address(paymentEscrow),
+            authorizedAmount,
+            auth.validAfter,
+            auth.validBefore,
+            paymentDetailsHash,
+            BUYER_EOA_PK
+        );
+
+        // First void the authorization
+        vm.prank(operator);
+        paymentEscrow.voidAuthorization(paymentDetails);
+
+        // Then try to charge using the voided authorization
+        vm.prank(operator);
+        vm.expectRevert(abi.encodeWithSelector(PaymentEscrow.VoidAuthorization.selector, paymentDetailsHash));
+        paymentEscrow.charge(valueToCharge, paymentDetails, signature);
+    }
+
+    function test_charge_emitsCorrectEvents() public {
+        uint256 authorizedAmount = 100e6;
+        uint256 valueToCharge = 60e6; // Charge less than authorized to test refund events
+
+        PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
+            token: address(mockERC3009Token),
+            from: buyerEOA,
+            to: address(paymentEscrow),
+            validAfter: block.timestamp - 1,
+            validBefore: block.timestamp + 1 days,
+            value: authorizedAmount,
+            extraData: PaymentEscrow.ExtraData({
+                salt: 0,
+                operator: operator,
+                captureAddress: captureAddress,
+                feeBps: FEE_BPS,
+                feeRecipient: feeRecipient
+            })
+        });
+
+        bytes memory paymentDetails = abi.encode(auth);
+        bytes32 paymentDetailsHash = keccak256(paymentDetails);
+
+        bytes memory signature = _signERC3009(
+            buyerEOA,
+            address(paymentEscrow),
+            authorizedAmount,
+            auth.validAfter,
+            auth.validBefore,
+            paymentDetailsHash,
+            BUYER_EOA_PK
+        );
+
+        // Record expected event
+        vm.expectEmit(true, false, false, true);
+        emit PaymentEscrow.PaymentCharged(paymentDetailsHash, valueToCharge);
+
+        // Execute charge
+        vm.prank(operator);
+        paymentEscrow.charge(valueToCharge, paymentDetails, signature);
+    }
 }
