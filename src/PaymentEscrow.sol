@@ -127,6 +127,9 @@ contract PaymentEscrow {
             _transfer(auth.token, auth.from, refundAmount);
         }
 
+        // Update captured amount for refund tracking
+        _captured[paymentDetailsHash] = valueToCharge;
+
         emit PaymentCharged(paymentDetailsHash, valueToCharge);
 
         // Handle fees only for the actual charged amount
