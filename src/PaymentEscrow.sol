@@ -6,7 +6,6 @@ import {IERC3009} from "./IERC3009.sol";
 import {PublicERC6492Validator} from "spend-permissions/PublicERC6492Validator.sol";
 
 /// @notice Route and escrow payments using ERC-3009 authorizations.
-/// TODO: do we need to enforce a singular acceptable token address? (USDC)
 contract PaymentEscrow {
     /// @notice Additional data to compliment ERC-3009 base fields
     struct ExtraData {
@@ -24,6 +23,7 @@ contract PaymentEscrow {
         address to;
         uint256 validAfter;
         uint256 validBefore;
+        uint256 value; // represents the amount of tokens that will be passed to receiveWithAuthorization (signed over)
         ExtraData extraData;
     }
 
@@ -114,6 +114,10 @@ contract PaymentEscrow {
         onlyOperator(paymentDetails)
         nonZeroValue(value)
     {
+        // TODO: for this function and for `charge`
+        // diff arg value v.s. auth.value
+        // if diff is nonzero, return the diff amount to the buyer at end of txn
+        // increment authorized storage only by what was kept
         Authorization memory auth = abi.decode(paymentDetails, (Authorization));
         ExtraData memory data = auth.extraData;
 
@@ -122,39 +126,39 @@ contract PaymentEscrow {
         bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
         _executeReceiveWithAuth(auth, value, paymentDetailsHash, signature);
 
-        _authorized[paymentDetailsHash] += value;
+        _authorized[paymentDetailsHash] += value; // todo only kept amount
         emit AuthorizationIncreased(paymentDetailsHash, value);
     }
 
-    /// @notice Transfer funds from buyer to escrow via pre-approved SpendPermission.
-    /// @dev Reverts if not called by operator.
-    function increaseAuthorization(uint256 value, bytes calldata paymentDetails)
-        external
-        onlyOperator(paymentDetails)
-        nonZeroValue(value)
-    {
-        revert Unsupported(); // TODO: pretty sure we can implement this?
-    }
+    // /// @notice Transfer funds from buyer to escrow via pre-approved SpendPermission.
+    // /// @dev Reverts if not called by operator.
+    // function increaseAuthorization(uint256 value, bytes calldata paymentDetails)
+    //     external
+    //     onlyOperator(paymentDetails)
+    //     nonZeroValue(value)
+    // {
+    //     revert Unsupported(); // TODO: pretty sure we can implement this?
+    // }
 
-    /// @notice Return previously-escrowed funds to buyer.
-    /// @dev Reverts if not called by operator or merchant.
-    function decreaseAuthorization(uint256 value, bytes calldata paymentDetails)
-        external
-        onlyOperator(paymentDetails)
-        nonZeroValue(value)
-    {
-        Authorization memory auth = abi.decode(paymentDetails, (Authorization));
-        ExtraData memory data = auth.extraData;
-        bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
+    // /// @notice Return previously-escrowed funds to buyer.
+    // /// @dev Reverts if not called by operator or merchant.
+    // function decreaseAuthorization(uint256 value, bytes calldata paymentDetails)
+    //     external
+    //     onlyOperator(paymentDetails)
+    //     nonZeroValue(value)
+    // {
+    //     Authorization memory auth = abi.decode(paymentDetails, (Authorization));
+    //     ExtraData memory data = auth.extraData;
+    //     bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
 
-        // check sufficient authorization
-        uint256 authorizedValue = _authorized[paymentDetailsHash];
-        if (authorizedValue < value) revert InsufficientAuthorization(paymentDetailsHash, authorizedValue, value);
+    //     // check sufficient authorization
+    //     uint256 authorizedValue = _authorized[paymentDetailsHash];
+    //     if (authorizedValue < value) revert InsufficientAuthorization(paymentDetailsHash, authorizedValue, value);
 
-        _authorized[paymentDetailsHash] = authorizedValue - value;
-        emit AuthorizationDecreased(paymentDetailsHash, value);
-        _transfer(auth.token, data.merchant, value);
-    }
+    //     _authorized[paymentDetailsHash] = authorizedValue - value;
+    //     emit AuthorizationDecreased(paymentDetailsHash, value);
+    //     _transfer(auth.token, data.merchant, value);
+    // }
 
     /// @notice Cancel payment by revoking authorization and refunding all escrowed funds.
     /// @dev Reverts if not called by operator or merchant.
@@ -163,7 +167,8 @@ contract PaymentEscrow {
         ExtraData memory data = auth.extraData;
         bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
 
-        // TODO: revoke authorization
+        // TODO: revoke authorization -- via the 3009 revoke function (can't, needs signature)
+        // could add a voiding storage to this contract to revoke here
 
         // early return if no authorized value
         uint256 authorizedValue = _authorized[paymentDetailsHash];
@@ -172,12 +177,13 @@ contract PaymentEscrow {
         delete _authorized[paymentDetailsHash];
         emit AuthorizationDecreased(paymentDetailsHash, authorizedValue);
         emit AuthorizationVoided(paymentDetailsHash);
-        _transfer(auth.token, data.merchant, authorizedValue); // TODO: shouldn't the recipient be the buyer?
+        _transfer(auth.token, auth.from, authorizedValue);
     }
 
     /// @notice Transfer previously-escrowed funds to merchant.
     /// @dev Reverts if not called by operator.
     /// @dev Partial capture with custom value parameter and calling multiple times.
+    /// TODO: maybe just pass the hash here and anything else needed?
     function captureAuthorization(uint256 value, bytes calldata paymentDetails)
         external
         onlyOperator(paymentDetails)
@@ -209,7 +215,7 @@ contract PaymentEscrow {
 
     /// @notice Return previously-captured tokens to buyer.
     /// @dev Reverts if not called by operator or merchant.
-    function refund(uint256 value, bytes calldata paymentDetails) external payable nonZeroValue(value) {
+    function refund(uint256 value, bytes calldata paymentDetails) external nonZeroValue(value) {
         Authorization memory auth = abi.decode(paymentDetails, (Authorization));
         ExtraData memory data = auth.extraData;
 
@@ -229,6 +235,15 @@ contract PaymentEscrow {
         // return tokens to buyer
         SafeTransferLib.safeTransferFrom(auth.token, msg.sender, data.merchant, value);
     }
+
+    /// TODO: consider refund liquidity provider i.e. reverse escrow payment
+    /// stripe could sign a 3009 auth that will only be used for the refund intended by stripe
+    /// operator can redeem 3009 to pull funds from stripe into escrow, and then atomically route to the buyer
+    /// How to ensure that stripe's signed 3009 auth is actually used for a refund and not just used to buy something?
+
+    /// Maybe stripe signs a 3009 auth for the refund, and then operator can redeem that 3009 auth to pull funds from stripe into escrow
+    /// original paymentDetails hash for the original purchase could be hashed (twice) into the nonce that gets signed over (basically incompatible hash scheme)
+    ///
 
     /// @notice Execute ERC3009 receiveWithAuthorization
     function _executeReceiveWithAuth(
