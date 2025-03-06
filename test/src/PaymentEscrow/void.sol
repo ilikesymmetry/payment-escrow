@@ -5,25 +5,22 @@ import {PaymentEscrow} from "../../../src/PaymentEscrow.sol";
 import {PaymentEscrowBase} from "../../base/PaymentEscrowBase.sol";
 
 contract VoidAuthorizationTest is PaymentEscrowBase {
-    function test_voidAuthorization_succeeds_withNoEscrowedFunds(uint256 authorizedAmount) public {
+    function test_void_succeeds_withNoEscrowedFunds(uint256 authorizedAmount) public {
         uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
 
         vm.assume(authorizedAmount > 0 && authorizedAmount <= buyerBalance);
 
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),
-            from: buyerEOA,
-            to: address(paymentEscrow),
+            buyer: buyerEOA,
             validAfter: block.timestamp - 1,
             validBefore: block.timestamp + 1 days,
             value: authorizedAmount,
-            extraData: PaymentEscrow.ExtraData({
-                salt: 0,
-                operator: operator,
-                captureAddress: captureAddress,
-                feeBps: FEE_BPS,
-                feeRecipient: feeRecipient
-            })
+            operator: operator,
+            captureAddress: captureAddress,
+            feeBps: FEE_BPS,
+            feeRecipient: feeRecipient,
+            salt: 0
         });
 
         bytes memory paymentDetails = abi.encode(auth);
@@ -32,7 +29,7 @@ contract VoidAuthorizationTest is PaymentEscrowBase {
         vm.prank(operator);
         vm.expectEmit(true, false, false, false);
         emit PaymentEscrow.PaymentVoided(paymentDetailsHash);
-        paymentEscrow.voidAuthorization(paymentDetails);
+        paymentEscrow.void(paymentDetails);
 
         bytes memory signature = _signERC3009(
             buyerEOA,
@@ -47,28 +44,25 @@ contract VoidAuthorizationTest is PaymentEscrowBase {
         // try to confirm authorization and see revert
         vm.prank(operator);
         vm.expectRevert(abi.encodeWithSelector(PaymentEscrow.VoidAuthorization.selector, paymentDetailsHash));
-        paymentEscrow.confirmAuthorization(authorizedAmount, paymentDetails, signature);
+        paymentEscrow.authorize(authorizedAmount, paymentDetails, signature);
     }
 
-    function test_voidAuthorization_succeeds_withEscrowedFunds(uint256 authorizedAmount) public {
+    function test_void_succeeds_withEscrowedFunds(uint256 authorizedAmount) public {
         uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
 
         vm.assume(authorizedAmount > 0 && authorizedAmount <= buyerBalance);
 
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),
-            from: buyerEOA,
-            to: address(paymentEscrow),
+            buyer: buyerEOA,
             validAfter: block.timestamp - 1,
             validBefore: block.timestamp + 1 days,
             value: authorizedAmount,
-            extraData: PaymentEscrow.ExtraData({
-                salt: 0,
-                operator: operator,
-                captureAddress: captureAddress,
-                feeBps: FEE_BPS,
-                feeRecipient: feeRecipient
-            })
+            operator: operator,
+            captureAddress: captureAddress,
+            feeBps: FEE_BPS,
+            feeRecipient: feeRecipient,
+            salt: 0
         });
 
         bytes memory paymentDetails = abi.encode(auth);
@@ -86,7 +80,7 @@ contract VoidAuthorizationTest is PaymentEscrowBase {
 
         // First confirm the authorization to escrow funds
         vm.prank(operator);
-        paymentEscrow.confirmAuthorization(authorizedAmount, paymentDetails, signature);
+        paymentEscrow.authorize(authorizedAmount, paymentDetails, signature);
 
         uint256 buyerBalanceBefore = mockERC3009Token.balanceOf(buyerEOA);
         uint256 escrowBalanceBefore = mockERC3009Token.balanceOf(address(paymentEscrow));
@@ -95,36 +89,29 @@ contract VoidAuthorizationTest is PaymentEscrowBase {
         vm.prank(operator);
         vm.expectEmit(true, false, false, false);
         emit PaymentEscrow.PaymentVoided(paymentDetailsHash);
-        vm.expectEmit(true, false, false, true);
-        emit PaymentEscrow.AuthorizationDecreased(paymentDetailsHash, authorizedAmount);
-        vm.expectEmit(true, false, false, false);
-        emit PaymentEscrow.PaymentVoided(paymentDetailsHash);
-        paymentEscrow.voidAuthorization(paymentDetails);
+        paymentEscrow.void(paymentDetails);
 
         // Verify funds were returned to buyer
         assertEq(mockERC3009Token.balanceOf(buyerEOA), buyerBalanceBefore + escrowBalanceBefore);
         assertEq(mockERC3009Token.balanceOf(address(paymentEscrow)), 0);
     }
 
-    function test_voidAuthorization_succeeds_whenAlreadyVoided(uint256 authorizedAmount) public {
+    function test_void_succeeds_whenAlreadyVoided(uint256 authorizedAmount) public {
         uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
 
         vm.assume(authorizedAmount > 0 && authorizedAmount <= buyerBalance);
 
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),
-            from: buyerEOA,
-            to: address(paymentEscrow),
+            buyer: buyerEOA,
             validAfter: block.timestamp - 1,
             validBefore: block.timestamp + 1 days,
             value: authorizedAmount,
-            extraData: PaymentEscrow.ExtraData({
-                salt: 0,
-                operator: operator,
-                captureAddress: captureAddress,
-                feeBps: FEE_BPS,
-                feeRecipient: feeRecipient
-            })
+            operator: operator,
+            captureAddress: captureAddress,
+            feeBps: FEE_BPS,
+            feeRecipient: feeRecipient,
+            salt: 0
         });
 
         bytes memory paymentDetails = abi.encode(auth);
@@ -132,63 +119,55 @@ contract VoidAuthorizationTest is PaymentEscrowBase {
 
         // Void the authorization first time
         vm.prank(operator);
-        paymentEscrow.voidAuthorization(paymentDetails);
+        vm.expectEmit(true, false, false, false);
+        emit PaymentEscrow.PaymentVoided(paymentDetailsHash);
+        paymentEscrow.void(paymentDetails);
 
         // Void the authorization second time
         vm.prank(operator);
-        vm.expectEmit(true, false, false, false);
-        emit PaymentEscrow.PaymentVoided(paymentDetailsHash);
-        paymentEscrow.voidAuthorization(paymentDetails);
+        paymentEscrow.void(paymentDetails);
     }
 
-    function test_voidAuthorization_reverts_whenNotOperatorOrCaptureAddress() public {
+    function test_void_reverts_whenNotOperatorOrCaptureAddress() public {
         uint256 authorizedAmount = 100e6;
 
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),
-            from: buyerEOA,
-            to: address(paymentEscrow),
+            buyer: buyerEOA,
             validAfter: block.timestamp - 1,
             validBefore: block.timestamp + 1 days,
             value: authorizedAmount,
-            extraData: PaymentEscrow.ExtraData({
-                salt: 0,
-                operator: operator,
-                captureAddress: captureAddress,
-                feeBps: FEE_BPS,
-                feeRecipient: feeRecipient
-            })
+            operator: operator,
+            captureAddress: captureAddress,
+            feeBps: FEE_BPS,
+            feeRecipient: feeRecipient,
+            salt: 0
         });
 
         bytes memory paymentDetails = abi.encode(auth);
 
         address randomAddress = makeAddr("randomAddress");
         vm.prank(randomAddress);
-        vm.expectRevert(
-            abi.encodeWithSelector(PaymentEscrow.InvalidRefundSender.selector, randomAddress, operator, captureAddress)
-        );
-        paymentEscrow.voidAuthorization(paymentDetails);
+        vm.expectRevert(abi.encodeWithSelector(PaymentEscrow.InvalidSender.selector, randomAddress));
+        paymentEscrow.void(paymentDetails);
     }
 
-    function test_voidAuthorization_succeeds_whenCalledByCaptureAddress(uint256 authorizedAmount) public {
+    function test_void_succeeds_whenCalledByCaptureAddress(uint256 authorizedAmount) public {
         uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
 
         vm.assume(authorizedAmount > 0 && authorizedAmount <= buyerBalance);
 
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),
-            from: buyerEOA,
-            to: address(paymentEscrow),
+            buyer: buyerEOA,
             validAfter: block.timestamp - 1,
             validBefore: block.timestamp + 1 days,
             value: authorizedAmount,
-            extraData: PaymentEscrow.ExtraData({
-                salt: 0,
-                operator: operator,
-                captureAddress: captureAddress,
-                feeBps: FEE_BPS,
-                feeRecipient: feeRecipient
-            })
+            operator: operator,
+            captureAddress: captureAddress,
+            feeBps: FEE_BPS,
+            feeRecipient: feeRecipient,
+            salt: 0
         });
 
         bytes memory paymentDetails = abi.encode(auth);
@@ -206,7 +185,7 @@ contract VoidAuthorizationTest is PaymentEscrowBase {
 
         // First confirm the authorization to escrow funds
         vm.prank(operator);
-        paymentEscrow.confirmAuthorization(authorizedAmount, paymentDetails, signature);
+        paymentEscrow.authorize(authorizedAmount, paymentDetails, signature);
 
         uint256 buyerBalanceBefore = mockERC3009Token.balanceOf(buyerEOA);
         uint256 escrowBalanceBefore = mockERC3009Token.balanceOf(address(paymentEscrow));
@@ -215,34 +194,27 @@ contract VoidAuthorizationTest is PaymentEscrowBase {
         vm.prank(captureAddress);
         vm.expectEmit(true, false, false, false);
         emit PaymentEscrow.PaymentVoided(paymentDetailsHash);
-        vm.expectEmit(true, false, false, true);
-        emit PaymentEscrow.AuthorizationDecreased(paymentDetailsHash, authorizedAmount);
-        vm.expectEmit(true, false, false, false);
-        emit PaymentEscrow.PaymentVoided(paymentDetailsHash);
-        paymentEscrow.voidAuthorization(paymentDetails);
+        paymentEscrow.void(paymentDetails);
 
         // Verify funds were returned to buyer
         assertEq(mockERC3009Token.balanceOf(buyerEOA), buyerBalanceBefore + escrowBalanceBefore);
         assertEq(mockERC3009Token.balanceOf(address(paymentEscrow)), 0);
     }
 
-    function test_voidAuthorization_emitsCorrectEvents() public {
+    function test_void_emitsCorrectEvents() public {
         uint256 authorizedAmount = 100e6;
 
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),
-            from: buyerEOA,
-            to: address(paymentEscrow),
+            buyer: buyerEOA,
             validAfter: block.timestamp - 1,
             validBefore: block.timestamp + 1 days,
             value: authorizedAmount,
-            extraData: PaymentEscrow.ExtraData({
-                salt: 0,
-                operator: operator,
-                captureAddress: captureAddress,
-                feeBps: FEE_BPS,
-                feeRecipient: feeRecipient
-            })
+            operator: operator,
+            captureAddress: captureAddress,
+            feeBps: FEE_BPS,
+            feeRecipient: feeRecipient,
+            salt: 0
         });
 
         bytes memory paymentDetails = abi.encode(auth);
@@ -260,20 +232,14 @@ contract VoidAuthorizationTest is PaymentEscrowBase {
 
         // First confirm the authorization to escrow funds
         vm.prank(operator);
-        paymentEscrow.confirmAuthorization(authorizedAmount, paymentDetails, signature);
+        paymentEscrow.authorize(authorizedAmount, paymentDetails, signature);
 
         // Record all expected events in order
         vm.expectEmit(true, false, false, false);
         emit PaymentEscrow.PaymentVoided(paymentDetailsHash);
 
-        vm.expectEmit(true, false, false, true);
-        emit PaymentEscrow.AuthorizationDecreased(paymentDetailsHash, authorizedAmount);
-
-        vm.expectEmit(true, false, false, false);
-        emit PaymentEscrow.PaymentVoided(paymentDetailsHash);
-
         // Then void the authorization and verify events
         vm.prank(operator);
-        paymentEscrow.voidAuthorization(paymentDetails);
+        paymentEscrow.void(paymentDetails);
     }
 }

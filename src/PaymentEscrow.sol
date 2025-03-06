@@ -2,8 +2,9 @@
 pragma solidity ^0.8.13;
 
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {IERC3009} from "./IERC3009.sol";
 import {PublicERC6492Validator} from "spend-permissions/PublicERC6492Validator.sol";
+
+import {IERC3009} from "./IERC3009.sol";
 
 /// @notice Route and escrow payments using ERC-3009 authorizations.
 /// @dev This contract handles payment flows where a buyer authorizes a future payment,
@@ -12,33 +13,25 @@ contract PaymentEscrow {
     /// @notice ERC-3009 authorization with additional payment routing data
     /// @param token The ERC-3009 token contract address
     /// @param from The buyer's address authorizing the payment
-    /// @param to The payment escrow contract address
+    /// @param value The amount of tokens that will be transferred from the buyer to the escrow
     /// @param validAfter Timestamp when the authorization becomes valid
     /// @param validBefore Timestamp when the authorization expires
-    /// @param value The amount of tokens that will be transferred from the buyer to the escrow
-    /// @param extraData Additional payment routing and fee data
-    struct Authorization {
-        address token;
-        address from;
-        address to;
-        uint256 validAfter;
-        uint256 validBefore;
-        uint256 value;
-        ExtraData extraData;
-    }
-
-    /// @notice Additional data to complement ERC-3009 base fields
-    /// @param salt A source of entropy to ensure unique hashes across different payment details
     /// @param operator Address authorized to capture and void payments
     /// @param captureAddress Address that receives the captured payment (minus fees)
     /// @param feeBps Fee percentage in basis points (1/100th of a percent)
     /// @param feeRecipient Address that receives the fee portion of payments
-    struct ExtraData {
-        uint256 salt;
+    /// @param salt A source of entropy to ensure unique hashes across different payment details
+    struct Authorization {
+        address token;
+        address buyer;
+        uint256 value;
+        uint256 validAfter;
+        uint256 validBefore;
         address operator;
         address captureAddress;
         uint16 feeBps;
         address feeRecipient;
+        uint256 salt;
     }
 
     /// @notice ERC-6492 magic value
@@ -63,10 +56,7 @@ contract PaymentEscrow {
     event PaymentCharged(bytes32 indexed paymentDetailsHash, uint256 value);
 
     /// @notice Emitted when authorized (escrowed) value is increased
-    event AuthorizationIncreased(bytes32 indexed paymentDetailsHash, uint256 value);
-
-    /// @notice Emitted when authorized (escrowed) value is decreased
-    event AuthorizationDecreased(bytes32 indexed paymentDetailsHash, uint256 value);
+    event PaymentAuthorized(bytes32 indexed paymentDetailsHash, uint256 value);
 
     /// @notice Emitted when a payment authorization is voided, returning any escrowed funds to the buyer
     event PaymentVoided(bytes32 indexed paymentDetailsHash);
@@ -80,8 +70,7 @@ contract PaymentEscrow {
     error InsufficientAuthorization(bytes32 paymentDetailsHash, uint256 authorizedValue, uint256 requestedValue);
     error ValueLimitExceeded(uint256 value);
     error PermissionApprovalFailed();
-    error InvalidSender(address sender, address expected);
-    error InvalidRefundSender(address sender, address operator, address captureAddress);
+    error InvalidSender(address sender);
     error RefundExceedsCapture(uint256 refund, uint256 captured);
     error FeeBpsOverflow(uint16 feeBps);
     error ZeroFeeRecipient();
@@ -97,8 +86,7 @@ contract PaymentEscrow {
     /// @notice Ensures caller is the operator specified in payment details
     modifier onlyOperator(bytes calldata paymentDetails) {
         Authorization memory auth = abi.decode(paymentDetails, (Authorization));
-        ExtraData memory data = auth.extraData;
-        if (msg.sender != data.operator) revert InvalidSender(msg.sender, data.operator);
+        if (msg.sender != auth.operator) revert InvalidSender(msg.sender);
         _;
     }
 
@@ -111,121 +99,85 @@ contract PaymentEscrow {
     receive() external payable {}
 
     /// @notice Transfers funds from buyer to captureAddress in one step
-    /// @dev If valueToCharge is less than the authorized value, difference is returned to buyer
-    /// @param valueToCharge Amount to charge and capture
+    /// @dev If value is less than the authorized value, difference is returned to buyer
+    /// @param value Amount to charge and capture
     /// @param paymentDetails Encoded Authorization struct
     /// @param signature Signature of the buyer authorizing the payment
-    function charge(uint256 valueToCharge, bytes calldata paymentDetails, bytes calldata signature)
+    function charge(uint256 value, bytes calldata paymentDetails, bytes calldata signature)
         external
         onlyOperator(paymentDetails)
-        nonZeroValue(valueToCharge)
+        nonZeroValue(value)
     {
         Authorization memory auth = abi.decode(paymentDetails, (Authorization));
-        ExtraData memory data = auth.extraData;
-
-        if (valueToCharge > auth.value) {
-            revert ValueLimitExceeded(valueToCharge);
-        }
-
-        _validateFees(data.feeBps, data.feeRecipient);
-
         bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
 
-        // Pull the full authorized amount from the buyer
-        _executeReceiveWithAuth(auth, auth.value, paymentDetailsHash, signature);
-
-        // Calculate difference to refund
-        uint256 refundAmount = auth.value - valueToCharge;
-
-        // Return excess funds to buyer if any
-        if (refundAmount > 0) {
-            _transfer(auth.token, auth.from, refundAmount);
-        }
+        _pullFunds(auth, value, paymentDetailsHash, signature);
 
         // Update captured amount for refund tracking
-        _captured[paymentDetailsHash] = valueToCharge;
-
-        emit PaymentCharged(paymentDetailsHash, valueToCharge);
+        _captured[paymentDetailsHash] = value;
+        emit PaymentCharged(paymentDetailsHash, value);
 
         // Handle fees only for the actual charged amount
-        _handleFees(auth.token, data.captureAddress, data.feeRecipient, data.feeBps, valueToCharge);
+        _distributeTokens(auth.token, auth.captureAddress, auth.feeRecipient, auth.feeBps, value);
     }
 
     /// @notice Validates buyer signature and transfers funds from buyer to escrow
-    /// @param valueToConfirm Amount to authorize
+    /// @param value Amount to authorize
     /// @param paymentDetails Encoded Authorization struct
     /// @param signature Signature of the buyer authorizing the payment
-    function confirmAuthorization(uint256 valueToConfirm, bytes calldata paymentDetails, bytes calldata signature)
+    function authorize(uint256 value, bytes calldata paymentDetails, bytes calldata signature)
         external
         onlyOperator(paymentDetails)
-        nonZeroValue(valueToConfirm)
+        nonZeroValue(value)
     {
         Authorization memory auth = abi.decode(paymentDetails, (Authorization));
-        ExtraData memory data = auth.extraData;
-
-        if (valueToConfirm > auth.value) {
-            revert ValueLimitExceeded(valueToConfirm);
-        }
-
-        _validateFees(data.feeBps, data.feeRecipient);
-
         bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
 
-        // Pull the full authorized amount from the buyer
-        _executeReceiveWithAuth(auth, auth.value, paymentDetailsHash, signature);
-
-        // Calculate difference to refund
-        uint256 refundAmount = auth.value - valueToConfirm;
+        _pullFunds(auth, value, paymentDetailsHash, signature);
 
         // Update authorized amount to only what we're keeping
-        _authorized[paymentDetailsHash] += valueToConfirm;
-        emit AuthorizationIncreased(paymentDetailsHash, valueToConfirm);
-
-        // Return excess funds to buyer if any
-        if (refundAmount > 0) {
-            _transfer(auth.token, auth.from, refundAmount);
-        }
+        _authorized[paymentDetailsHash] += value;
+        emit PaymentAuthorized(paymentDetailsHash, value);
     }
 
     /// @notice Permanently voids a payment authorization
     /// @dev Returns any escrowed funds to buyer
     /// @param paymentDetails Encoded Authorization struct
-    function voidAuthorization(bytes calldata paymentDetails) external {
+    function void(bytes calldata paymentDetails) external {
         Authorization memory auth = abi.decode(paymentDetails, (Authorization));
-        ExtraData memory data = auth.extraData;
+        bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
 
         // Check sender is operator or captureAddress
-        if (msg.sender != data.operator && msg.sender != data.captureAddress) {
-            revert InvalidRefundSender(msg.sender, data.operator, data.captureAddress);
+        if (msg.sender != auth.operator && msg.sender != auth.captureAddress) {
+            revert InvalidSender(msg.sender);
         }
 
-        bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
+        // early return if previously voided
+        if (_voided[paymentDetailsHash]) return;
 
         // Mark the authorization as void
         _voided[paymentDetailsHash] = true;
         emit PaymentVoided(paymentDetailsHash);
 
-        // Return any escrowed funds
+        // early return if no existing authorization escrowed
         uint256 authorizedValue = _authorized[paymentDetailsHash];
         if (authorizedValue == 0) return;
 
+        // Return any escrowed funds
         delete _authorized[paymentDetailsHash];
-        emit AuthorizationDecreased(paymentDetailsHash, authorizedValue);
-        emit PaymentVoided(paymentDetailsHash);
-        _transfer(auth.token, auth.from, authorizedValue);
+        SafeTransferLib.safeTransfer(auth.token, auth.buyer, authorizedValue);
     }
 
     /// @notice Transfer previously-escrowed funds to captureAddress
     /// @dev Can be called multiple times up to cumulative authorized amount
     /// @param value Amount to capture
     /// @param paymentDetails Encoded Authorization struct
-    function captureAuthorization(uint256 value, bytes calldata paymentDetails)
+    function capture(uint256 value, bytes calldata paymentDetails)
         external
         onlyOperator(paymentDetails)
         nonZeroValue(value)
     {
         Authorization memory auth = abi.decode(paymentDetails, (Authorization));
-        ExtraData memory data = auth.extraData;
         bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
 
         // Check sufficient escrow to capture
@@ -237,15 +189,8 @@ contract PaymentEscrow {
         _captured[paymentDetailsHash] += value;
         emit PaymentCaptured(paymentDetailsHash, value);
 
-        // Calculate fees and remaining payment value
-        uint256 feeAmount = uint256(value) * data.feeBps / 10_000;
-        value -= uint256(feeAmount);
-
-        // Transfer fee
-        if (feeAmount > 0) _transfer(auth.token, data.feeRecipient, feeAmount);
-
-        // Transfer payment
-        if (value > 0) _transfer(auth.token, data.captureAddress, value);
+        // Handle fees only for the actual charged amount
+        _distributeTokens(auth.token, auth.captureAddress, auth.feeRecipient, auth.feeBps, value);
     }
 
     /// @notice Return previously-captured tokens to buyer
@@ -254,15 +199,14 @@ contract PaymentEscrow {
     /// @param paymentDetails Encoded Authorization struct
     function refund(uint256 value, bytes calldata paymentDetails) external nonZeroValue(value) {
         Authorization memory auth = abi.decode(paymentDetails, (Authorization));
-        ExtraData memory data = auth.extraData;
+        bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
 
         // Check sender is operator or captureAddress
-        if (msg.sender != data.operator && msg.sender != data.captureAddress) {
-            revert InvalidRefundSender(msg.sender, data.operator, data.captureAddress);
+        if (msg.sender != auth.operator && msg.sender != auth.captureAddress) {
+            revert InvalidSender(msg.sender);
         }
 
         // Limit refund value to previously captured
-        bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
         uint256 captured = _captured[paymentDetailsHash];
         if (captured < value) revert RefundExceedsCapture(value, captured);
 
@@ -270,69 +214,59 @@ contract PaymentEscrow {
         emit PaymentRefunded(paymentDetailsHash, msg.sender, value);
 
         // Return tokens to buyer
-        SafeTransferLib.safeTransferFrom(auth.token, msg.sender, auth.from, value);
+        SafeTransferLib.safeTransferFrom(auth.token, msg.sender, auth.buyer, value);
     }
 
-    /// @notice Execute ERC3009 receiveWithAuthorization with signature validation
-    /// @param auth Authorization struct containing transfer details
-    /// @param value Amount to transfer
-    /// @param paymentDetailsHash Hash of encoded Authorization struct
-    /// @param signature ERC-3009 or ERC-6492 signature
-    function _executeReceiveWithAuth(
-        Authorization memory auth,
-        uint256 value,
-        bytes32 paymentDetailsHash,
-        bytes calldata signature
-    ) internal {
-        // Check if authorization has been voided
-        if (_voided[paymentDetailsHash]) {
-            revert VoidAuthorization(paymentDetailsHash);
-        }
+    function _pullFunds(Authorization memory auth, uint256 value, bytes32 paymentDetailsHash, bytes calldata signature)
+        internal
+    {
+        // validate value
+        if (value > auth.value) revert ValueLimitExceeded(value);
 
+        // validate fees
+        if (auth.feeBps > 10_000) revert FeeBpsOverflow(auth.feeBps);
+        if (auth.feeRecipient == address(0) && auth.feeBps != 0) revert ZeroFeeRecipient();
+
+        // check if authorization has been voided
+        if (_voided[paymentDetailsHash]) revert VoidAuthorization(paymentDetailsHash);
+
+        // parse signature to use for 3009 receiveWithAuthorization
         bytes memory innerSignature = signature;
         if (signature.length >= 32 && bytes32(signature[signature.length - 32:]) == ERC6492_MAGIC_VALUE) {
-            // Deploy smart wallet if needed
-            erc6492Validator.isValidSignatureNowAllowSideEffects(auth.from, paymentDetailsHash, signature);
-            // If it's an ERC6492 signature, unwrap it to get the inner signature
+            // apply 6492 signature prepareData
+            erc6492Validator.isValidSignatureNowAllowSideEffects(auth.buyer, paymentDetailsHash, signature);
+            // parse inner signature from 6492 format
             (,, innerSignature) = abi.decode(signature[0:signature.length - 32], (address, bytes, bytes));
         }
 
+        // pull the full authorized amount from the buyer
         IERC3009(auth.token).receiveWithAuthorization(
-            auth.from, address(this), value, auth.validAfter, auth.validBefore, paymentDetailsHash, innerSignature
+            auth.buyer, address(this), auth.value, auth.validAfter, auth.validBefore, paymentDetailsHash, innerSignature
         );
+
+        // send excess funds back to buyer
+        uint256 excessFunds = auth.value - value;
+        if (excessFunds > 0) SafeTransferLib.safeTransfer(auth.token, auth.buyer, excessFunds);
     }
 
-    /// @notice Validate fee configuration
-    /// @param feeBps Fee percentage in basis points
-    /// @param feeRecipient Address to receive fees
-    function _validateFees(uint16 feeBps, address feeRecipient) internal pure {
-        if (feeBps > 10_000) revert FeeBpsOverflow(feeBps);
-        if (feeRecipient == address(0) && feeBps != 0) revert ZeroFeeRecipient();
-    }
-
-    /// @notice Calculate and transfer fees
+    /// @notice Sends tokens to captureAddress and/or feeRecipient
     /// @param token Token to transfer
     /// @param captureAddress Address to receive payment
     /// @param feeRecipient Address to receive fees
     /// @param feeBps Fee percentage in basis points
     /// @param value Total amount to split between payment and fees
     /// @return remainingValue Amount after fees deducted
-    function _handleFees(address token, address captureAddress, address feeRecipient, uint16 feeBps, uint256 value)
-        internal
-        returns (uint256 remainingValue)
-    {
+    function _distributeTokens(
+        address token,
+        address captureAddress,
+        address feeRecipient,
+        uint16 feeBps,
+        uint256 value
+    ) internal returns (uint256 remainingValue) {
         uint256 feeAmount = uint256(value) * feeBps / 10_000;
         remainingValue = value - feeAmount;
 
-        if (feeAmount > 0) _transfer(token, feeRecipient, feeAmount);
-        if (remainingValue > 0) _transfer(token, captureAddress, remainingValue);
-    }
-
-    /// @notice Transfer tokens from the escrow to a recipient
-    /// @param token Token to transfer
-    /// @param recipient Address to receive tokens
-    /// @param value Amount to transfer
-    function _transfer(address token, address recipient, uint256 value) internal {
-        SafeTransferLib.safeTransfer(token, recipient, value);
+        if (feeAmount > 0) SafeTransferLib.safeTransfer(token, feeRecipient, feeAmount);
+        if (remainingValue > 0) SafeTransferLib.safeTransfer(token, captureAddress, remainingValue);
     }
 }

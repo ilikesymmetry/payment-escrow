@@ -12,18 +12,15 @@ contract ChargeTest is PaymentEscrowBase {
 
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),
-            from: buyerEOA,
-            to: address(paymentEscrow),
+            buyer: buyerEOA,
             validAfter: block.timestamp - 1,
             validBefore: block.timestamp + 1 days,
             value: amount,
-            extraData: PaymentEscrow.ExtraData({
-                salt: 0,
-                operator: operator,
-                captureAddress: captureAddress,
-                feeBps: FEE_BPS,
-                feeRecipient: feeRecipient
-            })
+            operator: operator,
+            captureAddress: captureAddress,
+            feeBps: FEE_BPS,
+            feeRecipient: feeRecipient,
+            salt: 0
         });
 
         bytes memory paymentDetails = abi.encode(auth);
@@ -58,18 +55,15 @@ contract ChargeTest is PaymentEscrowBase {
 
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),
-            from: buyerEOA,
-            to: address(paymentEscrow),
+            buyer: buyerEOA,
             validAfter: block.timestamp - 1,
             validBefore: block.timestamp + 1 days,
             value: authorizedAmount,
-            extraData: PaymentEscrow.ExtraData({
-                salt: 0,
-                operator: operator,
-                captureAddress: captureAddress,
-                feeBps: FEE_BPS,
-                feeRecipient: feeRecipient
-            })
+            operator: operator,
+            captureAddress: captureAddress,
+            feeBps: FEE_BPS,
+            feeRecipient: feeRecipient,
+            salt: 0
         });
 
         bytes memory paymentDetails = abi.encode(auth);
@@ -102,18 +96,15 @@ contract ChargeTest is PaymentEscrowBase {
 
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),
-            from: buyerEOA,
-            to: address(paymentEscrow),
+            buyer: buyerEOA,
             validAfter: block.timestamp - 1,
             validBefore: block.timestamp + 1 days,
             value: authorizedAmount,
-            extraData: PaymentEscrow.ExtraData({
-                salt: 0,
-                operator: operator,
-                captureAddress: captureAddress,
-                feeBps: FEE_BPS,
-                feeRecipient: feeRecipient
-            })
+            operator: operator,
+            captureAddress: captureAddress,
+            feeBps: FEE_BPS,
+            feeRecipient: feeRecipient,
+            salt: 0
         });
 
         bytes memory paymentDetails = abi.encode(auth);
@@ -148,18 +139,15 @@ contract ChargeTest is PaymentEscrowBase {
 
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),
-            from: buyerEOA,
-            to: address(paymentEscrow),
+            buyer: buyerEOA,
             validAfter: block.timestamp - 1,
             validBefore: block.timestamp + 1 days,
             value: authorizedAmount,
-            extraData: PaymentEscrow.ExtraData({
-                salt: 0,
-                operator: operator,
-                captureAddress: captureAddress,
-                feeBps: FEE_BPS,
-                feeRecipient: feeRecipient
-            })
+            operator: operator,
+            captureAddress: captureAddress,
+            feeBps: FEE_BPS,
+            feeRecipient: feeRecipient,
+            salt: 0
         });
 
         bytes memory paymentDetails = abi.encode(auth);
@@ -212,18 +200,15 @@ contract ChargeTest is PaymentEscrowBase {
 
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),
-            from: buyerEOA,
-            to: address(paymentEscrow),
+            buyer: buyerEOA,
             validAfter: block.timestamp - 1,
             validBefore: block.timestamp + 1 days,
             value: authorizedAmount,
-            extraData: PaymentEscrow.ExtraData({
-                salt: 0,
-                operator: operator,
-                captureAddress: captureAddress,
-                feeBps: FEE_BPS,
-                feeRecipient: feeRecipient
-            })
+            operator: operator,
+            captureAddress: captureAddress,
+            feeBps: FEE_BPS,
+            feeRecipient: feeRecipient,
+            salt: 0
         });
 
         bytes memory paymentDetails = abi.encode(auth);
@@ -241,18 +226,15 @@ contract ChargeTest is PaymentEscrowBase {
 
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),
-            from: buyerEOA,
-            to: address(paymentEscrow),
+            buyer: buyerEOA,
             validAfter: block.timestamp - 1,
             validBefore: block.timestamp + 1 days,
             value: authorizedAmount,
-            extraData: PaymentEscrow.ExtraData({
-                salt: 0,
-                operator: operator,
-                captureAddress: captureAddress,
-                feeBps: FEE_BPS,
-                feeRecipient: feeRecipient
-            })
+            operator: operator,
+            captureAddress: captureAddress,
+            feeBps: FEE_BPS,
+            feeRecipient: feeRecipient,
+            salt: 0
         });
 
         bytes memory paymentDetails = abi.encode(auth);
@@ -270,7 +252,7 @@ contract ChargeTest is PaymentEscrowBase {
 
         // First void the authorization
         vm.prank(operator);
-        paymentEscrow.voidAuthorization(paymentDetails);
+        paymentEscrow.void(paymentDetails);
 
         // Then try to charge using the voided authorization
         vm.prank(operator);

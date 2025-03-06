@@ -16,18 +16,15 @@ contract PaymentEscrowSmartWalletE2ETest is PaymentEscrowSmartWalletBase {
         // Create payment details
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),
-            from: address(smartWalletDeployed),
-            to: address(paymentEscrow),
+            buyer: address(smartWalletDeployed),
             validAfter: block.timestamp - 1,
             validBefore: block.timestamp + 1 days,
             value: amount,
-            extraData: PaymentEscrow.ExtraData({
-                salt: uint256(0),
-                operator: operator,
-                captureAddress: captureAddress,
-                feeBps: FEE_BPS,
-                feeRecipient: feeRecipient
-            })
+            operator: operator,
+            captureAddress: captureAddress,
+            feeBps: FEE_BPS,
+            feeRecipient: feeRecipient,
+            salt: uint256(0)
         });
         bytes memory paymentDetails = abi.encode(auth);
         // bytes32 nonce = keccak256(paymentDetails); // Use paymentDetailsHash as nonce
@@ -35,7 +32,7 @@ contract PaymentEscrowSmartWalletE2ETest is PaymentEscrowSmartWalletBase {
         // Create signature
         bytes memory signature = _signSmartWalletERC3009(
             address(smartWalletDeployed),
-            address(paymentEscrow),
+            captureAddress,
             amount,
             auth.validAfter,
             auth.validBefore,
@@ -66,18 +63,15 @@ contract PaymentEscrowSmartWalletE2ETest is PaymentEscrowSmartWalletBase {
         // Create payment details
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),
-            from: address(smartWalletCounterfactual),
-            to: address(paymentEscrow),
+            buyer: address(smartWalletCounterfactual),
             validAfter: block.timestamp - 1,
             validBefore: block.timestamp + 1 days,
             value: amount,
-            extraData: PaymentEscrow.ExtraData({
-                salt: uint256(0),
-                operator: operator,
-                captureAddress: captureAddress,
-                feeBps: FEE_BPS,
-                feeRecipient: feeRecipient
-            })
+            operator: operator,
+            captureAddress: captureAddress,
+            feeBps: FEE_BPS,
+            feeRecipient: feeRecipient,
+            salt: uint256(0)
         });
         bytes memory paymentDetails = abi.encode(auth);
         // bytes32 nonce = keccak256(paymentDetails); // Use paymentDetailsHash as nonce
@@ -85,7 +79,7 @@ contract PaymentEscrowSmartWalletE2ETest is PaymentEscrowSmartWalletBase {
         // Create signature
         bytes memory signature = _signSmartWalletERC3009WithERC6492(
             address(smartWalletCounterfactual),
-            address(paymentEscrow),
+            captureAddress,
             amount,
             auth.validAfter,
             auth.validBefore,

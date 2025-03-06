@@ -13,18 +13,15 @@ contract RefundTest is PaymentEscrowBase {
 
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),
-            from: buyerEOA,
-            to: address(paymentEscrow),
+            buyer: buyerEOA,
             validAfter: block.timestamp - 1,
             validBefore: block.timestamp + 1 days,
             value: authorizedAmount,
-            extraData: PaymentEscrow.ExtraData({
-                salt: 0,
-                operator: operator,
-                captureAddress: captureAddress,
-                feeBps: FEE_BPS,
-                feeRecipient: feeRecipient
-            })
+            operator: operator,
+            captureAddress: captureAddress,
+            feeBps: FEE_BPS,
+            feeRecipient: feeRecipient,
+            salt: 0
         });
 
         bytes memory paymentDetails = abi.encode(auth);
@@ -42,8 +39,8 @@ contract RefundTest is PaymentEscrowBase {
 
         // First confirm and capture the payment
         vm.startPrank(operator);
-        paymentEscrow.confirmAuthorization(authorizedAmount, paymentDetails, signature);
-        paymentEscrow.captureAuthorization(authorizedAmount, paymentDetails);
+        paymentEscrow.authorize(authorizedAmount, paymentDetails, signature);
+        paymentEscrow.capture(authorizedAmount, paymentDetails);
         vm.stopPrank();
 
         // Fund the operator for refund
@@ -73,18 +70,15 @@ contract RefundTest is PaymentEscrowBase {
 
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),
-            from: buyerEOA,
-            to: address(paymentEscrow),
+            buyer: buyerEOA,
             validAfter: block.timestamp - 1,
             validBefore: block.timestamp + 1 days,
             value: authorizedAmount,
-            extraData: PaymentEscrow.ExtraData({
-                salt: 0,
-                operator: operator,
-                captureAddress: captureAddress,
-                feeBps: FEE_BPS,
-                feeRecipient: feeRecipient
-            })
+            operator: operator,
+            captureAddress: captureAddress,
+            feeBps: FEE_BPS,
+            feeRecipient: feeRecipient,
+            salt: 0
         });
 
         bytes memory paymentDetails = abi.encode(auth);
@@ -102,8 +96,8 @@ contract RefundTest is PaymentEscrowBase {
 
         // First confirm and capture the payment
         vm.startPrank(operator);
-        paymentEscrow.confirmAuthorization(authorizedAmount, paymentDetails, signature);
-        paymentEscrow.captureAuthorization(authorizedAmount, paymentDetails);
+        paymentEscrow.authorize(authorizedAmount, paymentDetails, signature);
+        paymentEscrow.capture(authorizedAmount, paymentDetails);
         vm.stopPrank();
 
         // Fund the captureAddress for refund
@@ -134,18 +128,15 @@ contract RefundTest is PaymentEscrowBase {
 
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),
-            from: buyerEOA,
-            to: address(paymentEscrow),
+            buyer: buyerEOA,
             validAfter: block.timestamp - 1,
             validBefore: block.timestamp + 1 days,
             value: authorizedAmount,
-            extraData: PaymentEscrow.ExtraData({
-                salt: 0,
-                operator: operator,
-                captureAddress: captureAddress,
-                feeBps: FEE_BPS,
-                feeRecipient: feeRecipient
-            })
+            operator: operator,
+            captureAddress: captureAddress,
+            feeBps: FEE_BPS,
+            feeRecipient: feeRecipient,
+            salt: 0
         });
 
         bytes memory paymentDetails = abi.encode(auth);
@@ -163,8 +154,8 @@ contract RefundTest is PaymentEscrowBase {
 
         // First confirm and capture partial amount
         vm.startPrank(operator);
-        paymentEscrow.confirmAuthorization(authorizedAmount, paymentDetails, signature);
-        paymentEscrow.captureAuthorization(chargeAmount, paymentDetails);
+        paymentEscrow.authorize(authorizedAmount, paymentDetails, signature);
+        paymentEscrow.capture(chargeAmount, paymentDetails);
         vm.stopPrank();
 
         // Fund operator for refund
@@ -184,27 +175,22 @@ contract RefundTest is PaymentEscrowBase {
 
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),
-            from: buyerEOA,
-            to: address(paymentEscrow),
+            buyer: buyerEOA,
             validAfter: block.timestamp - 1,
             validBefore: block.timestamp + 1 days,
             value: authorizedAmount,
-            extraData: PaymentEscrow.ExtraData({
-                salt: 0,
-                operator: operator,
-                captureAddress: captureAddress,
-                feeBps: FEE_BPS,
-                feeRecipient: feeRecipient
-            })
+            operator: operator,
+            captureAddress: captureAddress,
+            feeBps: FEE_BPS,
+            feeRecipient: feeRecipient,
+            salt: 0
         });
 
         bytes memory paymentDetails = abi.encode(auth);
 
         address randomAddress = makeAddr("randomAddress");
         vm.prank(randomAddress);
-        vm.expectRevert(
-            abi.encodeWithSelector(PaymentEscrow.InvalidRefundSender.selector, randomAddress, operator, captureAddress)
-        );
+        vm.expectRevert(abi.encodeWithSelector(PaymentEscrow.InvalidSender.selector, randomAddress));
         paymentEscrow.refund(refundAmount, paymentDetails);
     }
 
@@ -214,18 +200,15 @@ contract RefundTest is PaymentEscrowBase {
 
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),
-            from: buyerEOA,
-            to: address(paymentEscrow),
+            buyer: buyerEOA,
             validAfter: block.timestamp - 1,
             validBefore: block.timestamp + 1 days,
             value: authorizedAmount,
-            extraData: PaymentEscrow.ExtraData({
-                salt: 0,
-                operator: operator,
-                captureAddress: captureAddress,
-                feeBps: FEE_BPS,
-                feeRecipient: feeRecipient
-            })
+            operator: operator,
+            captureAddress: captureAddress,
+            feeBps: FEE_BPS,
+            feeRecipient: feeRecipient,
+            salt: 0
         });
 
         bytes memory paymentDetails = abi.encode(auth);
@@ -243,8 +226,8 @@ contract RefundTest is PaymentEscrowBase {
 
         // First confirm and capture the payment
         vm.startPrank(operator);
-        paymentEscrow.confirmAuthorization(authorizedAmount, paymentDetails, signature);
-        paymentEscrow.captureAuthorization(authorizedAmount, paymentDetails);
+        paymentEscrow.authorize(authorizedAmount, paymentDetails, signature);
+        paymentEscrow.capture(authorizedAmount, paymentDetails);
         vm.stopPrank();
 
         // Fund operator for refund

@@ -52,8 +52,8 @@ contract PaymentEscrowSmartWalletBase is PaymentEscrowBase {
     }
 
     function _signSmartWalletERC3009(
-        address from,
-        address to,
+        address buyer,
+        address captureAddress,
         uint256 value,
         uint256 validAfter,
         uint256 validBefore,
@@ -65,24 +65,21 @@ contract PaymentEscrowSmartWalletBase is PaymentEscrowBase {
             abi.encode(
                 PaymentEscrow.Authorization({
                     token: address(mockERC3009Token),
-                    from: from,
-                    to: to,
+                    buyer: buyer,
+                    captureAddress: captureAddress,
                     validAfter: validAfter,
                     validBefore: validBefore,
                     value: value,
-                    extraData: PaymentEscrow.ExtraData({
-                        salt: uint256(0),
-                        operator: operator,
-                        captureAddress: captureAddress,
-                        feeBps: FEE_BPS,
-                        feeRecipient: feeRecipient
-                    })
+                    operator: operator,
+                    feeBps: FEE_BPS,
+                    feeRecipient: feeRecipient,
+                    salt: uint256(0)
                 })
             )
         );
 
         // This is what needs to be signed by the smart wallet
-        bytes32 erc3009Digest = _getERC3009Digest(from, to, value, validAfter, validBefore, nonce);
+        bytes32 erc3009Digest = _getERC3009Digest(buyer, value, validAfter, validBefore, nonce);
 
         // Now wrap the ERC3009 digest in the smart wallet's domain
         bytes32 domainSeparator = keccak256(
@@ -91,7 +88,7 @@ contract PaymentEscrowSmartWalletBase is PaymentEscrowBase {
                 keccak256(bytes("Coinbase Smart Wallet")),
                 keccak256(bytes("1")),
                 block.chainid,
-                from
+                buyer
             )
         );
 
@@ -99,20 +96,23 @@ contract PaymentEscrowSmartWalletBase is PaymentEscrowBase {
         bytes32 finalHash = keccak256(abi.encodePacked("\x19\x01", domainSeparator, messageHash));
 
         bytes memory signature = _sign(ownerPk, finalHash);
-        return abi.encode(ownerIndex, signature);
+        return abi.encode(CoinbaseSmartWallet.SignatureWrapper(ownerIndex, signature));
     }
 
-    function _getERC3009Digest(
-        address from,
-        address to,
-        uint256 value,
-        uint256 validAfter,
-        uint256 validBefore,
-        bytes32 nonce
-    ) internal view returns (bytes32) {
+    function _getERC3009Digest(address buyer, uint256 value, uint256 validAfter, uint256 validBefore, bytes32 nonce)
+        internal
+        view
+        returns (bytes32)
+    {
         bytes32 structHash = keccak256(
             abi.encode(
-                mockERC3009Token.RECEIVE_WITH_AUTHORIZATION_TYPEHASH(), from, to, value, validAfter, validBefore, nonce
+                mockERC3009Token.RECEIVE_WITH_AUTHORIZATION_TYPEHASH(),
+                buyer,
+                address(paymentEscrow),
+                value,
+                validAfter,
+                validBefore,
+                nonce
             )
         );
         return keccak256(abi.encodePacked("\x19\x01", mockERC3009Token.DOMAIN_SEPARATOR(), structHash));
@@ -125,25 +125,22 @@ contract PaymentEscrowSmartWalletBase is PaymentEscrowBase {
     {
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),
-            from: smartWalletCounterfactual, // Use smart wallet address instead of EOA
-            to: address(paymentEscrow),
+            buyer: smartWalletCounterfactual, // Use smart wallet address instead of EOA
+            captureAddress: captureAddress,
+            value: value,
             validAfter: validAfter,
             validBefore: validBefore,
-            value: value,
-            extraData: PaymentEscrow.ExtraData({
-                salt: uint256(nonce),
-                operator: operator,
-                captureAddress: captureAddress,
-                feeBps: FEE_BPS,
-                feeRecipient: feeRecipient
-            })
+            operator: operator,
+            feeBps: FEE_BPS,
+            feeRecipient: feeRecipient,
+            salt: uint256(nonce)
         });
         return abi.encode(auth);
     }
 
     function _signSmartWalletERC3009WithERC6492(
-        address from,
-        address to,
+        address buyer,
+        address captureAddress,
         uint256 value,
         uint256 validAfter,
         uint256 validBefore,
@@ -151,7 +148,8 @@ contract PaymentEscrowSmartWalletBase is PaymentEscrowBase {
         uint256 ownerIndex
     ) internal view returns (bytes memory) {
         // First get the normal smart wallet signature
-        bytes memory signature = _signSmartWalletERC3009(from, to, value, validAfter, validBefore, ownerPk, ownerIndex);
+        bytes memory signature =
+            _signSmartWalletERC3009(buyer, captureAddress, value, validAfter, validBefore, ownerPk, ownerIndex);
 
         // Prepare the factory call data
         bytes[] memory allInitialOwners = new bytes[](1);
