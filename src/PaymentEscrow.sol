@@ -36,19 +36,6 @@ contract PaymentEscrow {
         uint256 salt;
     }
 
-    /// @notice Whether a payment authorization has been permanently voided
-    /// @dev Once voided, an authorization can never be used again
-    /// @param isVoided Whether the authorization has been voided
-    /// @param captureDeadline Timestamp when the buyer can withdraw authorization from escrow and payment can no longer be captured
-    /// @param balance Amount of tokens held by this contract available for capture
-    struct AuthorizationState {
-        bool isVoided;
-        // @review wondering if captureDeadline belongs in storage here given that everywhere it's used it actually comes from
-        // the payment details struct anyway?
-        uint48 captureDeadline;
-        uint200 balance;
-    }
-
     /// @notice ERC-6492 magic value
     bytes32 public constant ERC6492_MAGIC_VALUE = 0x6492649264926492649264926492649264926492649264926492649264926492;
 
@@ -58,11 +45,15 @@ contract PaymentEscrow {
     /// @notice Authorization state for a specific 3009 authorization.
     /// @dev Used to track whether an authorization has been voided or expired, and to limit amount that can
     ///      be captured or refunded from escrow.
-    mapping(bytes32 paymentDetailsHash => AuthorizationState state) internal _authorizations;
+    mapping(bytes32 paymentDetailsHash => uint256 value) internal _authorized;
 
     /// @notice Amount of tokens captured for a specific 3009 authorization.
     /// @dev Used to limit amount that can be refunded post-capture.
     mapping(bytes32 paymentDetailsHash => uint256 value) internal _captured;
+
+    /// @notice Whether or not a payment has been voided.
+    /// @dev Prevents future authorization and captures for this payment if voided.
+    mapping(bytes32 paymentDetailsHash => bool isVoided) internal _voided;
 
     /// @notice Emitted when a payment is charged and immediately captured
     event PaymentCharged(bytes32 indexed paymentDetailsHash, uint256 value);
@@ -107,7 +98,6 @@ contract PaymentEscrow {
     /// @notice Ensures value is not zero
     modifier validValue(uint256 value) {
         if (value == 0) revert ZeroValue();
-        if (value > type(uint200).max) revert ValueLimitExceeded(value);
         _;
     }
 
@@ -127,7 +117,7 @@ contract PaymentEscrow {
         Authorization memory auth = abi.decode(paymentDetails, (Authorization));
         bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
 
-        _pullFunds(auth, value, paymentDetailsHash, signature);
+        _pullTokens(auth, value, paymentDetailsHash, signature);
 
         // check capture deadline
         if (block.timestamp > auth.captureDeadline) {
@@ -154,11 +144,10 @@ contract PaymentEscrow {
         Authorization memory auth = abi.decode(paymentDetails, (Authorization));
         bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
 
-        _pullFunds(auth, value, paymentDetailsHash, signature);
+        _pullTokens(auth, value, paymentDetailsHash, signature);
 
         // Update authorized amount to only what we're keeping
-        _authorizations[paymentDetailsHash] =
-            AuthorizationState({isVoided: false, captureDeadline: auth.captureDeadline, balance: uint200(value)});
+        _authorized[paymentDetailsHash] = value;
         emit PaymentAuthorized(paymentDetailsHash, value);
     }
 
@@ -178,19 +167,18 @@ contract PaymentEscrow {
         }
 
         // early return if previously voided
-        AuthorizationState memory authState = _authorizations[paymentDetailsHash];
-        if (authState.isVoided) return;
+        if (_voided[paymentDetailsHash]) return;
 
         // Mark the authorization as void
-        _authorizations[paymentDetailsHash].isVoided = true;
+        _voided[paymentDetailsHash] = true;
         emit PaymentVoided(paymentDetailsHash);
 
         // early return if no existing authorization escrowed
-        uint256 authorizedValue = authState.balance;
+        uint256 authorizedValue = _authorized[paymentDetailsHash];
         if (authorizedValue == 0) return;
 
         // Return any escrowed funds
-        _authorizations[paymentDetailsHash].balance = 0;
+        delete _authorized[paymentDetailsHash];
         SafeTransferLib.safeTransfer(auth.token, auth.buyer, authorizedValue);
     }
 
@@ -207,18 +195,16 @@ contract PaymentEscrow {
         bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
 
         // check capture deadline
-        AuthorizationState memory authState = _authorizations[paymentDetailsHash];
-        if (block.timestamp > authState.captureDeadline) {
-            revert AfterCaptureDeadline(uint48(block.timestamp), authState.captureDeadline);
+        if (block.timestamp > auth.captureDeadline) {
+            revert AfterCaptureDeadline(uint48(block.timestamp), auth.captureDeadline);
         }
 
         // check sufficient escrow to capture
-        uint256 authorizedValue = authState.balance;
+        uint256 authorizedValue = _authorized[paymentDetailsHash];
         if (authorizedValue < value) revert InsufficientAuthorization(paymentDetailsHash, authorizedValue, value);
 
         // update state
-        authState.balance -= uint200(value);
-        _authorizations[paymentDetailsHash] = authState;
+        _authorized[paymentDetailsHash] = authorizedValue - value;
         _captured[paymentDetailsHash] += value;
         emit PaymentCaptured(paymentDetailsHash, value);
 
@@ -250,7 +236,7 @@ contract PaymentEscrow {
         SafeTransferLib.safeTransferFrom(auth.token, msg.sender, auth.buyer, value);
     }
 
-    function _pullFunds(Authorization memory auth, uint256 value, bytes32 paymentDetailsHash, bytes calldata signature)
+    function _pullTokens(Authorization memory auth, uint256 value, bytes32 paymentDetailsHash, bytes calldata signature)
         internal
     {
         // validate value
@@ -261,7 +247,7 @@ contract PaymentEscrow {
         if (auth.feeRecipient == address(0) && auth.feeBps != 0) revert ZeroFeeRecipient();
 
         // check if authorization has been voided
-        if (_authorizations[paymentDetailsHash].isVoided) revert VoidAuthorization(paymentDetailsHash);
+        if (_voided[paymentDetailsHash]) revert VoidAuthorization(paymentDetailsHash);
 
         // parse signature to use for 3009 receiveWithAuthorization
         bytes memory innerSignature = signature;
