@@ -10,18 +10,7 @@ contract ConfirmAuthorizationTest is PaymentEscrowBase {
 
         vm.assume(amount > 0 && amount <= buyerBalance);
 
-        PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
-            token: address(mockERC3009Token),
-            buyer: buyerEOA,
-            validAfter: block.timestamp - 1,
-            validBefore: block.timestamp + 1 days,
-            value: amount,
-            operator: operator,
-            captureAddress: captureAddress,
-            feeBps: FEE_BPS,
-            feeRecipient: feeRecipient,
-            salt: 0
-        });
+        PaymentEscrow.Authorization memory auth = _createPaymentEscrowAuthorization(buyerEOA, amount);
 
         bytes memory paymentDetails = abi.encode(auth);
         bytes32 paymentDetailsHash = keccak256(paymentDetails);
@@ -53,18 +42,7 @@ contract ConfirmAuthorizationTest is PaymentEscrowBase {
         vm.assume(authorizedAmount > 0 && authorizedAmount <= buyerBalance);
         vm.assume(confirmAmount > 0 && confirmAmount < authorizedAmount);
 
-        PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
-            token: address(mockERC3009Token),
-            buyer: buyerEOA,
-            validAfter: block.timestamp - 1,
-            validBefore: block.timestamp + 1 days,
-            value: authorizedAmount,
-            operator: operator,
-            captureAddress: captureAddress,
-            feeBps: FEE_BPS,
-            feeRecipient: feeRecipient,
-            salt: 0
-        });
+        PaymentEscrow.Authorization memory auth = _createPaymentEscrowAuthorization(buyerEOA, authorizedAmount);
 
         bytes memory paymentDetails = abi.encode(auth);
         bytes32 paymentDetailsHash = keccak256(paymentDetails);
@@ -97,18 +75,7 @@ contract ConfirmAuthorizationTest is PaymentEscrowBase {
         vm.assume(authorizedAmount > 0 && authorizedAmount <= buyerBalance);
         uint256 confirmAmount = authorizedAmount + 1; // Always exceeds authorized
 
-        PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
-            token: address(mockERC3009Token),
-            buyer: buyerEOA,
-            validAfter: block.timestamp - 1,
-            validBefore: block.timestamp + 1 days,
-            value: authorizedAmount,
-            operator: operator,
-            captureAddress: captureAddress,
-            feeBps: FEE_BPS,
-            feeRecipient: feeRecipient,
-            salt: 0
-        });
+        PaymentEscrow.Authorization memory auth = _createPaymentEscrowAuthorization(buyerEOA, authorizedAmount);
 
         bytes memory paymentDetails = abi.encode(auth);
         bytes32 paymentDetailsHash = keccak256(paymentDetails);
@@ -133,18 +100,7 @@ contract ConfirmAuthorizationTest is PaymentEscrowBase {
 
         vm.assume(authorizedAmount > 0 && authorizedAmount <= buyerBalance);
 
-        PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
-            token: address(mockERC3009Token),
-            buyer: buyerEOA,
-            validAfter: block.timestamp - 1,
-            validBefore: block.timestamp + 1 days,
-            value: authorizedAmount,
-            operator: operator,
-            captureAddress: captureAddress,
-            feeBps: FEE_BPS,
-            feeRecipient: feeRecipient,
-            salt: 0
-        });
+        PaymentEscrow.Authorization memory auth = _createPaymentEscrowAuthorization(buyerEOA, authorizedAmount);
 
         bytes memory paymentDetails = abi.encode(auth);
         bytes32 paymentDetailsHash = keccak256(paymentDetails);
@@ -171,18 +127,7 @@ contract ConfirmAuthorizationTest is PaymentEscrowBase {
         uint256 authorizedAmount = 100e6;
         uint256 valueToConfirm = 60e6; // Confirm less than authorized to test refund events
 
-        PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
-            token: address(mockERC3009Token),
-            buyer: buyerEOA,
-            validAfter: block.timestamp - 1,
-            validBefore: block.timestamp + 1 days,
-            value: authorizedAmount,
-            operator: operator,
-            captureAddress: captureAddress,
-            feeBps: FEE_BPS,
-            feeRecipient: feeRecipient,
-            salt: 0
-        });
+        PaymentEscrow.Authorization memory auth = _createPaymentEscrowAuthorization(buyerEOA, authorizedAmount);
 
         bytes memory paymentDetails = abi.encode(auth);
         bytes32 paymentDetailsHash = keccak256(paymentDetails);

@@ -57,6 +57,7 @@ contract PaymentEscrowSmartWalletBase is PaymentEscrowBase {
         uint256 value,
         uint256 validAfter,
         uint256 validBefore,
+        uint48 captureDeadline,
         uint256 ownerPk,
         uint256 ownerIndex
     ) internal view returns (bytes memory) {
@@ -69,6 +70,7 @@ contract PaymentEscrowSmartWalletBase is PaymentEscrowBase {
                     captureAddress: captureAddress,
                     validAfter: validAfter,
                     validBefore: validBefore,
+                    captureDeadline: captureDeadline,
                     value: value,
                     operator: operator,
                     feeBps: FEE_BPS,
@@ -118,11 +120,13 @@ contract PaymentEscrowSmartWalletBase is PaymentEscrowBase {
         return keccak256(abi.encodePacked("\x19\x01", mockERC3009Token.DOMAIN_SEPARATOR(), structHash));
     }
 
-    function _createSmartWalletPaymentDetails(uint256 value, uint256 validAfter, uint256 validBefore, bytes32 nonce)
-        internal
-        view
-        returns (bytes memory)
-    {
+    function _createSmartWalletPaymentDetails(
+        uint256 value,
+        uint256 validAfter,
+        uint256 validBefore,
+        uint48 captureDeadline,
+        bytes32 nonce
+    ) internal view returns (bytes memory) {
         PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
             token: address(mockERC3009Token),
             buyer: smartWalletCounterfactual, // Use smart wallet address instead of EOA
@@ -130,6 +134,7 @@ contract PaymentEscrowSmartWalletBase is PaymentEscrowBase {
             value: value,
             validAfter: validAfter,
             validBefore: validBefore,
+            captureDeadline: captureDeadline,
             operator: operator,
             feeBps: FEE_BPS,
             feeRecipient: feeRecipient,
@@ -144,12 +149,14 @@ contract PaymentEscrowSmartWalletBase is PaymentEscrowBase {
         uint256 value,
         uint256 validAfter,
         uint256 validBefore,
+        uint48 captureDeadline,
         uint256 ownerPk,
         uint256 ownerIndex
     ) internal view returns (bytes memory) {
         // First get the normal smart wallet signature
-        bytes memory signature =
-            _signSmartWalletERC3009(buyer, captureAddress, value, validAfter, validBefore, ownerPk, ownerIndex);
+        bytes memory signature = _signSmartWalletERC3009(
+            buyer, captureAddress, value, validAfter, validBefore, captureDeadline, ownerPk, ownerIndex
+        );
 
         // Prepare the factory call data
         bytes[] memory allInitialOwners = new bytes[](1);

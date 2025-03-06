@@ -14,18 +14,9 @@ contract PaymentEscrowSmartWalletE2ETest is PaymentEscrowSmartWalletBase {
         vm.assume(amount > 0 && amount <= walletBalance);
 
         // Create payment details
-        PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
-            token: address(mockERC3009Token),
-            buyer: address(smartWalletDeployed),
-            validAfter: block.timestamp - 1,
-            validBefore: block.timestamp + 1 days,
-            value: amount,
-            operator: operator,
-            captureAddress: captureAddress,
-            feeBps: FEE_BPS,
-            feeRecipient: feeRecipient,
-            salt: uint256(0)
-        });
+        PaymentEscrow.Authorization memory auth =
+            _createPaymentEscrowAuthorization(address(smartWalletDeployed), amount);
+
         bytes memory paymentDetails = abi.encode(auth);
         // bytes32 nonce = keccak256(paymentDetails); // Use paymentDetailsHash as nonce
 
@@ -36,6 +27,7 @@ contract PaymentEscrowSmartWalletE2ETest is PaymentEscrowSmartWalletBase {
             amount,
             auth.validAfter,
             auth.validBefore,
+            auth.captureDeadline,
             DEPLOYED_WALLET_OWNER_PK,
             0
         );
@@ -61,20 +53,9 @@ contract PaymentEscrowSmartWalletE2ETest is PaymentEscrowSmartWalletBase {
         assertEq(wallet.code.length, 0, "Smart wallet should not be deployed yet");
 
         // Create payment details
-        PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
-            token: address(mockERC3009Token),
-            buyer: address(smartWalletCounterfactual),
-            validAfter: block.timestamp - 1,
-            validBefore: block.timestamp + 1 days,
-            value: amount,
-            operator: operator,
-            captureAddress: captureAddress,
-            feeBps: FEE_BPS,
-            feeRecipient: feeRecipient,
-            salt: uint256(0)
-        });
+        PaymentEscrow.Authorization memory auth =
+            _createPaymentEscrowAuthorization(address(smartWalletCounterfactual), amount);
         bytes memory paymentDetails = abi.encode(auth);
-        // bytes32 nonce = keccak256(paymentDetails); // Use paymentDetailsHash as nonce
 
         // Create signature
         bytes memory signature = _signSmartWalletERC3009WithERC6492(
@@ -83,6 +64,7 @@ contract PaymentEscrowSmartWalletE2ETest is PaymentEscrowSmartWalletBase {
             amount,
             auth.validAfter,
             auth.validBefore,
+            auth.captureDeadline,
             COUNTERFACTUAL_WALLET_OWNER_PK,
             0
         );
