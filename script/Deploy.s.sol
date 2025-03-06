@@ -1,9 +1,10 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.20;
 
 import {Script} from "forge-std/Script.sol";
-import {PaymentEscrow} from "../src/PaymentEscrow.sol";
 import {PublicERC6492Validator} from "spend-permissions/PublicERC6492Validator.sol";
+
+import {PaymentEscrow} from "../src/PaymentEscrow.sol";
 
 /**
  * @notice Deploy the PaymentEscrow contract.

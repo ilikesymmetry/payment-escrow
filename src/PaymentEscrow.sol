@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.13;
 
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
@@ -9,6 +9,7 @@ import {IERC3009} from "./IERC3009.sol";
 /// @notice Route and escrow payments using ERC-3009 authorizations.
 /// @dev This contract handles payment flows where a buyer authorizes a future payment,
 ///      which can then be captured in parts or refunded by an operator.
+/// @author Coinbase
 contract PaymentEscrow {
     /// @notice ERC-3009 authorization with additional payment routing data
     /// @param token The ERC-3009 token contract address
