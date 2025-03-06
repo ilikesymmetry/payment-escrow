@@ -38,8 +38,13 @@ contract PaymentEscrow {
 
     /// @notice Whether a payment authorization has been permanently voided
     /// @dev Once voided, an authorization can never be used again
+    /// @param isVoided Whether the authorization has been voided
+    /// @param captureDeadline Timestamp when the buyer can withdraw authorization from escrow and payment can no longer be captured
+    /// @param balance Amount of tokens held by this contract available for capture
     struct AuthorizationState {
         bool isVoided;
+        // @review wondering if captureDeadline belongs in storage here given that everywhere it's used it actually comes from
+        // the payment details struct anyway?
         uint48 captureDeadline;
         uint200 balance;
     }
@@ -50,8 +55,9 @@ contract PaymentEscrow {
     /// @notice Validator contract for processing ERC-6492 signatures
     PublicERC6492Validator public immutable erc6492Validator;
 
-    /// @notice Amount of tokens escrowed for a specific 3009 authorization.
-    /// @dev Used to limit amount that can be captured or refunded from escrow.
+    /// @notice Authorization state for a specific 3009 authorization.
+    /// @dev Used to track whether an authorization has been voided or expired, and to limit amount that can
+    ///      be captured or refunded from escrow.
     mapping(bytes32 paymentDetailsHash => AuthorizationState state) internal _authorizations;
 
     /// @notice Amount of tokens captured for a specific 3009 authorization.
@@ -109,6 +115,7 @@ contract PaymentEscrow {
 
     /// @notice Transfers funds from buyer to captureAddress in one step
     /// @dev If value is less than the authorized value, difference is returned to buyer
+    /// @dev Reverts if the authorization has been voided or the capture deadline has passed
     /// @param value Amount to charge and capture
     /// @param paymentDetails Encoded Authorization struct
     /// @param signature Signature of the buyer authorizing the payment
