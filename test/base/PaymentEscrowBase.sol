@@ -32,6 +32,26 @@ contract PaymentEscrowBase is Test {
         mockERC3009Token.mint(buyerEOA, 1000e6);
     }
 
+    function _createPaymentEscrowAuthorization(address buyer, uint256 value)
+        internal
+        view
+        returns (PaymentEscrow.Authorization memory)
+    {
+        return PaymentEscrow.Authorization({
+            token: address(mockERC3009Token),
+            buyer: buyer,
+            captureAddress: captureAddress,
+            value: value,
+            validAfter: 0,
+            validBefore: type(uint48).max,
+            captureDeadline: type(uint48).max,
+            operator: operator,
+            feeBps: FEE_BPS,
+            feeRecipient: feeRecipient,
+            salt: 0
+        });
+    }
+
     function _signERC3009(
         address from,
         address to,

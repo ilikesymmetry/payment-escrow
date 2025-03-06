@@ -11,21 +11,7 @@ contract RefundTest is PaymentEscrowBase {
         vm.assume(authorizedAmount > 0 && authorizedAmount <= buyerBalance);
         vm.assume(refundAmount > 0 && refundAmount <= authorizedAmount);
 
-        PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
-            token: address(mockERC3009Token),
-            from: buyerEOA,
-            to: address(paymentEscrow),
-            validAfter: block.timestamp - 1,
-            validBefore: block.timestamp + 1 days,
-            value: authorizedAmount,
-            extraData: PaymentEscrow.ExtraData({
-                salt: 0,
-                operator: operator,
-                captureAddress: captureAddress,
-                feeBps: FEE_BPS,
-                feeRecipient: feeRecipient
-            })
-        });
+        PaymentEscrow.Authorization memory auth = _createPaymentEscrowAuthorization(buyerEOA, authorizedAmount);
 
         bytes memory paymentDetails = abi.encode(auth);
         bytes32 paymentDetailsHash = keccak256(paymentDetails);
@@ -42,8 +28,8 @@ contract RefundTest is PaymentEscrowBase {
 
         // First confirm and capture the payment
         vm.startPrank(operator);
-        paymentEscrow.confirmAuthorization(authorizedAmount, paymentDetails, signature);
-        paymentEscrow.captureAuthorization(authorizedAmount, paymentDetails);
+        paymentEscrow.authorize(authorizedAmount, paymentDetails, signature);
+        paymentEscrow.capture(authorizedAmount, paymentDetails);
         vm.stopPrank();
 
         // Fund the operator for refund
@@ -71,21 +57,7 @@ contract RefundTest is PaymentEscrowBase {
         vm.assume(authorizedAmount > 0 && authorizedAmount <= buyerBalance);
         vm.assume(refundAmount > 0 && refundAmount <= authorizedAmount);
 
-        PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
-            token: address(mockERC3009Token),
-            from: buyerEOA,
-            to: address(paymentEscrow),
-            validAfter: block.timestamp - 1,
-            validBefore: block.timestamp + 1 days,
-            value: authorizedAmount,
-            extraData: PaymentEscrow.ExtraData({
-                salt: 0,
-                operator: operator,
-                captureAddress: captureAddress,
-                feeBps: FEE_BPS,
-                feeRecipient: feeRecipient
-            })
-        });
+        PaymentEscrow.Authorization memory auth = _createPaymentEscrowAuthorization(buyerEOA, authorizedAmount);
 
         bytes memory paymentDetails = abi.encode(auth);
         bytes32 paymentDetailsHash = keccak256(paymentDetails);
@@ -102,8 +74,8 @@ contract RefundTest is PaymentEscrowBase {
 
         // First confirm and capture the payment
         vm.startPrank(operator);
-        paymentEscrow.confirmAuthorization(authorizedAmount, paymentDetails, signature);
-        paymentEscrow.captureAuthorization(authorizedAmount, paymentDetails);
+        paymentEscrow.authorize(authorizedAmount, paymentDetails, signature);
+        paymentEscrow.capture(authorizedAmount, paymentDetails);
         vm.stopPrank();
 
         // Fund the captureAddress for refund
@@ -132,21 +104,7 @@ contract RefundTest is PaymentEscrowBase {
         uint256 chargeAmount = authorizedAmount / 2; // Charge only half
         uint256 refundAmount = authorizedAmount; // Try to refund full amount
 
-        PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
-            token: address(mockERC3009Token),
-            from: buyerEOA,
-            to: address(paymentEscrow),
-            validAfter: block.timestamp - 1,
-            validBefore: block.timestamp + 1 days,
-            value: authorizedAmount,
-            extraData: PaymentEscrow.ExtraData({
-                salt: 0,
-                operator: operator,
-                captureAddress: captureAddress,
-                feeBps: FEE_BPS,
-                feeRecipient: feeRecipient
-            })
-        });
+        PaymentEscrow.Authorization memory auth = _createPaymentEscrowAuthorization(buyerEOA, authorizedAmount);
 
         bytes memory paymentDetails = abi.encode(auth);
         bytes32 paymentDetailsHash = keccak256(paymentDetails);
@@ -163,8 +121,8 @@ contract RefundTest is PaymentEscrowBase {
 
         // First confirm and capture partial amount
         vm.startPrank(operator);
-        paymentEscrow.confirmAuthorization(authorizedAmount, paymentDetails, signature);
-        paymentEscrow.captureAuthorization(chargeAmount, paymentDetails);
+        paymentEscrow.authorize(authorizedAmount, paymentDetails, signature);
+        paymentEscrow.capture(chargeAmount, paymentDetails);
         vm.stopPrank();
 
         // Fund operator for refund
@@ -182,29 +140,13 @@ contract RefundTest is PaymentEscrowBase {
         uint256 authorizedAmount = 100e6;
         uint256 refundAmount = 60e6;
 
-        PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
-            token: address(mockERC3009Token),
-            from: buyerEOA,
-            to: address(paymentEscrow),
-            validAfter: block.timestamp - 1,
-            validBefore: block.timestamp + 1 days,
-            value: authorizedAmount,
-            extraData: PaymentEscrow.ExtraData({
-                salt: 0,
-                operator: operator,
-                captureAddress: captureAddress,
-                feeBps: FEE_BPS,
-                feeRecipient: feeRecipient
-            })
-        });
+        PaymentEscrow.Authorization memory auth = _createPaymentEscrowAuthorization(buyerEOA, authorizedAmount);
 
         bytes memory paymentDetails = abi.encode(auth);
 
         address randomAddress = makeAddr("randomAddress");
         vm.prank(randomAddress);
-        vm.expectRevert(
-            abi.encodeWithSelector(PaymentEscrow.InvalidRefundSender.selector, randomAddress, operator, captureAddress)
-        );
+        vm.expectRevert(abi.encodeWithSelector(PaymentEscrow.InvalidSender.selector, randomAddress));
         paymentEscrow.refund(refundAmount, paymentDetails);
     }
 
@@ -212,21 +154,7 @@ contract RefundTest is PaymentEscrowBase {
         uint256 authorizedAmount = 100e6;
         uint256 refundAmount = 60e6;
 
-        PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
-            token: address(mockERC3009Token),
-            from: buyerEOA,
-            to: address(paymentEscrow),
-            validAfter: block.timestamp - 1,
-            validBefore: block.timestamp + 1 days,
-            value: authorizedAmount,
-            extraData: PaymentEscrow.ExtraData({
-                salt: 0,
-                operator: operator,
-                captureAddress: captureAddress,
-                feeBps: FEE_BPS,
-                feeRecipient: feeRecipient
-            })
-        });
+        PaymentEscrow.Authorization memory auth = _createPaymentEscrowAuthorization(buyerEOA, authorizedAmount);
 
         bytes memory paymentDetails = abi.encode(auth);
         bytes32 paymentDetailsHash = keccak256(paymentDetails);
@@ -243,8 +171,8 @@ contract RefundTest is PaymentEscrowBase {
 
         // First confirm and capture the payment
         vm.startPrank(operator);
-        paymentEscrow.confirmAuthorization(authorizedAmount, paymentDetails, signature);
-        paymentEscrow.captureAuthorization(authorizedAmount, paymentDetails);
+        paymentEscrow.authorize(authorizedAmount, paymentDetails, signature);
+        paymentEscrow.capture(authorizedAmount, paymentDetails);
         vm.stopPrank();
 
         // Fund operator for refund
