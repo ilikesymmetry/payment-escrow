@@ -101,4 +101,40 @@ contract PaymentEscrowSmartWalletE2ETest is PaymentEscrowSmartWalletBase {
         assertEq(mockERC3009Token.balanceOf(captureAddress), amount - feeAmount);
         assertEq(mockERC3009Token.balanceOf(feeRecipient), feeAmount);
     }
+
+    function test_charge_reverts_withInvalidERC6492Signature() public {
+        PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
+            token: address(mockERC3009Token),
+            from: address(smartWalletCounterfactual),
+            to: address(paymentEscrow),
+            validAfter: block.timestamp - 1,
+            validBefore: block.timestamp + 1 days,
+            value: 100e6,
+            extraData: PaymentEscrow.ExtraData({
+                salt: 0,
+                operator: operator,
+                captureAddress: captureAddress,
+                feeBps: FEE_BPS,
+                feeRecipient: feeRecipient
+            })
+        });
+        bytes memory paymentDetails = abi.encode(auth);
+
+        // Create invalid signature (wrong magic value)
+        bytes memory invalidSignature = _signSmartWalletERC3009(
+            address(smartWalletCounterfactual),
+            address(paymentEscrow),
+            100e6,
+            auth.validAfter,
+            auth.validBefore,
+            COUNTERFACTUAL_WALLET_OWNER_PK,
+            0
+        );
+        bytes32 wrongMagicValue = bytes32(uint256(1));
+        invalidSignature = abi.encodePacked(invalidSignature, wrongMagicValue);
+
+        vm.prank(operator);
+        vm.expectRevert(); // Should revert when signature validation fails
+        paymentEscrow.charge(100e6, paymentDetails, invalidSignature);
+    }
 }

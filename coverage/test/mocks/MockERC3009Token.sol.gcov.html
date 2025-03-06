@@ -1,0 +1,160 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - test/mocks/MockERC3009Token.sol</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="title">LCOV - code coverage report</td></tr>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+            <tr>
+              <td width="100%">
+                <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="10%" class="headerValue"><a href="../../index.html" title="Click to go to top-level">top level</a> - <a href="index.html" title="Click to go to directory test/mocks">test/mocks</a> - MockERC3009Token.sol<span style="font-size: 80%;"> (source / <a href="MockERC3009Token.sol.func-c.html" title="Click to go to function table">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="5%"></td>
+            <td width="5%" class="headerCovTableHead">Coverage</td>
+            <td width="5%" class="headerCovTableHead" title="Covered + Uncovered code">Total</td>
+            <td width="5%" class="headerCovTableHead" title="Exercised code only">Hit</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntryLo">66.7&nbsp;%</td>
+            <td class="headerCovTableEntry">30</td>
+            <td class="headerCovTableEntry">20</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test Date:</td>
+            <td class="headerValue">2025-03-05 15:55:33</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntryLo">44.4&nbsp;%</td>
+            <td class="headerCovTableEntry">9</td>
+            <td class="headerCovTableEntry">4</td>
+          </tr>
+                  <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+          </table>
+
+          <table cellpadding=0 cellspacing=0 border=0>
+            <tr>
+              <td><br></td>
+            </tr>
+            <tr>
+              <td>
+<pre class="sourceHeading">            Line data    Source code</pre>
+<pre class="source">
+<span id="L1"><span class="lineNum">       1</span>              : // SPDX-License-Identifier: UNLICENSED</span>
+<span id="L2"><span class="lineNum">       2</span>              : pragma solidity ^0.8.13;</span>
+<span id="L3"><span class="lineNum">       3</span>              : </span>
+<span id="L4"><span class="lineNum">       4</span>              : import {ERC20} from &quot;solady/tokens/ERC20.sol&quot;;</span>
+<span id="L5"><span class="lineNum">       5</span>              : import {IERC3009} from &quot;../../src/IERC3009.sol&quot;;</span>
+<span id="L6"><span class="lineNum">       6</span>              : import {SignatureCheckerLib} from &quot;solady/utils/SignatureCheckerLib.sol&quot;;</span>
+<span id="L7"><span class="lineNum">       7</span>              : </span>
+<span id="L8"><span class="lineNum">       8</span>              : contract MockERC3009Token is ERC20, IERC3009 {</span>
+<span id="L9"><span class="lineNum">       9</span>              :     // Same constants as USDC implementation</span>
+<span id="L10"><span class="lineNum">      10</span>              :     bytes32 public constant RECEIVE_WITH_AUTHORIZATION_TYPEHASH =</span>
+<span id="L11"><span class="lineNum">      11</span>              :         0xd099cc98ef71107a616c4f0f941f04c322d8e254fe26b3c6668db87aae413de8;</span>
+<span id="L12"><span class="lineNum">      12</span>              : </span>
+<span id="L13"><span class="lineNum">      13</span>              :     mapping(address =&gt; mapping(bytes32 =&gt; bool)) private _authorizationStates;</span>
+<span id="L14"><span class="lineNum">      14</span>              : </span>
+<span id="L15"><span class="lineNum">      15</span>              :     string private _name;</span>
+<span id="L16"><span class="lineNum">      16</span>              :     string private _symbol;</span>
+<span id="L17"><span class="lineNum">      17</span>              :     uint8 private _decimals;</span>
+<span id="L18"><span class="lineNum">      18</span>              : </span>
+<span id="L19"><span class="lineNum">      19</span> <span class="tlaGNC">          30 :     constructor(string memory name_, string memory symbol_, uint8 decimals_) {</span></span>
+<span id="L20"><span class="lineNum">      20</span> <span class="tlaGNC">          30 :         _name = name_;</span></span>
+<span id="L21"><span class="lineNum">      21</span> <span class="tlaGNC">          30 :         _symbol = symbol_;</span></span>
+<span id="L22"><span class="lineNum">      22</span> <span class="tlaGNC">          30 :         _decimals = decimals_;</span></span>
+<span id="L23"><span class="lineNum">      23</span>              :     }</span>
+<span id="L24"><span class="lineNum">      24</span>              : </span>
+<span id="L25"><span class="lineNum">      25</span> <span class="tlaUNC">           0 :     function name() public view override returns (string memory) {</span></span>
+<span id="L26"><span class="lineNum">      26</span> <span class="tlaUNC">           0 :         return _name;</span></span>
+<span id="L27"><span class="lineNum">      27</span>              :     }</span>
+<span id="L28"><span class="lineNum">      28</span>              : </span>
+<span id="L29"><span class="lineNum">      29</span> <span class="tlaUNC">           0 :     function symbol() public view override returns (string memory) {</span></span>
+<span id="L30"><span class="lineNum">      30</span> <span class="tlaUNC">           0 :         return _symbol;</span></span>
+<span id="L31"><span class="lineNum">      31</span>              :     }</span>
+<span id="L32"><span class="lineNum">      32</span>              : </span>
+<span id="L33"><span class="lineNum">      33</span> <span class="tlaUNC">           0 :     function decimals() public view override returns (uint8) {</span></span>
+<span id="L34"><span class="lineNum">      34</span> <span class="tlaUNC">           0 :         return _decimals;</span></span>
+<span id="L35"><span class="lineNum">      35</span>              :     }</span>
+<span id="L36"><span class="lineNum">      36</span>              : </span>
+<span id="L37"><span class="lineNum">      37</span>              :     event AuthorizationUsed(address indexed authorizer, bytes32 indexed nonce);</span>
+<span id="L38"><span class="lineNum">      38</span>              : </span>
+<span id="L39"><span class="lineNum">      39</span> <span class="tlaGNC">        4173 :     function receiveWithAuthorization(</span></span>
+<span id="L40"><span class="lineNum">      40</span>              :         address from,</span>
+<span id="L41"><span class="lineNum">      41</span>              :         address to,</span>
+<span id="L42"><span class="lineNum">      42</span>              :         uint256 value,</span>
+<span id="L43"><span class="lineNum">      43</span>              :         uint256 validAfter,</span>
+<span id="L44"><span class="lineNum">      44</span>              :         uint256 validBefore,</span>
+<span id="L45"><span class="lineNum">      45</span>              :         bytes32 nonce,</span>
+<span id="L46"><span class="lineNum">      46</span>              :         bytes memory signature</span>
+<span id="L47"><span class="lineNum">      47</span>              :     ) external {</span>
+<span id="L48"><span class="lineNum">      48</span> <span class="tlaGNC">        4173 :         require(to == msg.sender, &quot;MockERC3009: caller must be the payee&quot;);</span></span>
+<span id="L49"><span class="lineNum">      49</span> <span class="tlaGNC">        4173 :         require(!_authorizationStates[from][nonce], &quot;MockERC3009: authorization is used&quot;);</span></span>
+<span id="L50"><span class="lineNum">      50</span> <span class="tlaGNC">        4173 :         require(block.timestamp &gt; validAfter, &quot;MockERC3009: authorization not yet valid&quot;);</span></span>
+<span id="L51"><span class="lineNum">      51</span> <span class="tlaGNC">        4173 :         require(block.timestamp &lt; validBefore, &quot;MockERC3009: authorization expired&quot;);</span></span>
+<span id="L52"><span class="lineNum">      52</span>              : </span>
+<span id="L53"><span class="lineNum">      53</span> <span class="tlaGNC">        4173 :         bytes32 structHash =</span></span>
+<span id="L54"><span class="lineNum">      54</span> <span class="tlaGNC">        4173 :             keccak256(abi.encode(RECEIVE_WITH_AUTHORIZATION_TYPEHASH, from, to, value, validAfter, validBefore, nonce));</span></span>
+<span id="L55"><span class="lineNum">      55</span>              : </span>
+<span id="L56"><span class="lineNum">      56</span> <span class="tlaGNC">        4173 :         bytes32 digest = keccak256(abi.encodePacked(&quot;\x19\x01&quot;, DOMAIN_SEPARATOR(), structHash));</span></span>
+<span id="L57"><span class="lineNum">      57</span>              : </span>
+<span id="L58"><span class="lineNum">      58</span> <span class="tlaGNC">        4173 :         require(SignatureCheckerLib.isValidSignatureNow(from, digest, signature), &quot;MockERC3009: invalid signature&quot;);</span></span>
+<span id="L59"><span class="lineNum">      59</span>              : </span>
+<span id="L60"><span class="lineNum">      60</span> <span class="tlaGNC">        4173 :         _authorizationStates[from][nonce] = true;</span></span>
+<span id="L61"><span class="lineNum">      61</span> <span class="tlaGNC">        4173 :         emit AuthorizationUsed(from, nonce);</span></span>
+<span id="L62"><span class="lineNum">      62</span> <span class="tlaGNC">        4173 :         _transfer(from, to, value);</span></span>
+<span id="L63"><span class="lineNum">      63</span>              :     }</span>
+<span id="L64"><span class="lineNum">      64</span>              : </span>
+<span id="L65"><span class="lineNum">      65</span> <span class="tlaGNC">        1072 :     function mint(address to, uint256 amount) external {</span></span>
+<span id="L66"><span class="lineNum">      66</span> <span class="tlaGNC">        1072 :         _mint(to, amount);</span></span>
+<span id="L67"><span class="lineNum">      67</span>              :     }</span>
+<span id="L68"><span class="lineNum">      68</span>              : </span>
+<span id="L69"><span class="lineNum">      69</span> <span class="tlaUNC">           0 :     function authorizationState(address authorizer, bytes32 nonce) external view returns (bool) {</span></span>
+<span id="L70"><span class="lineNum">      70</span> <span class="tlaUNC">           0 :         return _authorizationStates[authorizer][nonce];</span></span>
+<span id="L71"><span class="lineNum">      71</span>              :     }</span>
+<span id="L72"><span class="lineNum">      72</span>              : </span>
+<span id="L73"><span class="lineNum">      73</span>              :     // Override ERC20's domain name and version</span>
+<span id="L74"><span class="lineNum">      74</span> <span class="tlaGNC">        9392 :     function _constantNameHash() internal pure override returns (bytes32) {</span></span>
+<span id="L75"><span class="lineNum">      75</span> <span class="tlaGNC">        9392 :         return keccak256(bytes(&quot;USD Coin&quot;));</span></span>
+<span id="L76"><span class="lineNum">      76</span>              :     }</span>
+<span id="L77"><span class="lineNum">      77</span>              : </span>
+<span id="L78"><span class="lineNum">      78</span> <span class="tlaUNC">           0 :     function _constantVersionHash() internal pure returns (bytes32) {</span></span>
+<span id="L79"><span class="lineNum">      79</span> <span class="tlaUNC">           0 :         return keccak256(bytes(&quot;2&quot;));</span></span>
+<span id="L80"><span class="lineNum">      80</span>              :     }</span>
+<span id="L81"><span class="lineNum">      81</span>              : </span>
+<span id="L82"><span class="lineNum">      82</span>              :     event Debug(string name, bytes32 value);</span>
+<span id="L83"><span class="lineNum">      83</span>              :     event Debug(string name, address value);</span>
+<span id="L84"><span class="lineNum">      84</span>              : }</span>
+        </pre>
+              </td>
+            </tr>
+          </table>
+          <br>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+            <tr><td class="versionInfo">Generated by: <a href="https://github.com//linux-test-project/lcov" target="_parent">LCOV version 2.3-1</a></td></tr>
+          </table>
+          <br>
+
+</body>
+</html>

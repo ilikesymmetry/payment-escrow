@@ -292,4 +292,46 @@ contract CaptureAuthorizationTest is PaymentEscrowBase {
         vm.prank(operator);
         paymentEscrow.captureAuthorization(captureAmount, paymentDetails);
     }
+
+    function test_captureAuthorization_withZeroFees() public {
+        uint256 amount = 100e6;
+
+        PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
+            token: address(mockERC3009Token),
+            from: buyerEOA,
+            to: address(paymentEscrow),
+            validAfter: block.timestamp - 1,
+            validBefore: block.timestamp + 1 days,
+            value: amount,
+            extraData: PaymentEscrow.ExtraData({
+                salt: 0,
+                operator: operator,
+                captureAddress: captureAddress,
+                feeBps: 0,
+                feeRecipient: address(0)
+            })
+        });
+
+        bytes memory paymentDetails = abi.encode(auth);
+        bytes32 paymentDetailsHash = keccak256(paymentDetails);
+
+        bytes memory signature = _signERC3009(
+            buyerEOA,
+            address(paymentEscrow),
+            amount,
+            auth.validAfter,
+            auth.validBefore,
+            paymentDetailsHash,
+            BUYER_EOA_PK
+        );
+
+        vm.startPrank(operator);
+        paymentEscrow.confirmAuthorization(amount, paymentDetails, signature);
+        paymentEscrow.captureAuthorization(amount, paymentDetails);
+        vm.stopPrank();
+
+        // With zero fees, entire amount should go to captureAddress
+        assertEq(mockERC3009Token.balanceOf(captureAddress), amount);
+        assertEq(mockERC3009Token.balanceOf(feeRecipient), 0);
+    }
 }

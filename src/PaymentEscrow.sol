@@ -121,34 +121,42 @@ contract PaymentEscrow {
         nonZeroValue(valueToCharge)
     {
         Authorization memory auth = abi.decode(paymentDetails, (Authorization));
-        ExtraData memory data = auth.extraData;
+        bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
 
+        // Cache token to reduce struct access
+        address token = auth.token;
+
+        // Validate and execute transfer
+        _validateChargeInputs(valueToCharge, auth);
+        _executeReceiveWithAuth(auth, auth.value, paymentDetailsHash, signature);
+
+        // Update state and emit event
+        _captured[paymentDetailsHash] = valueToCharge;
+        emit PaymentCharged(paymentDetailsHash, valueToCharge);
+
+        // Handle refund if needed
+        uint256 refundAmount = auth.value - valueToCharge;
+        if (refundAmount > 0) {
+            _transfer(token, auth.from, refundAmount);
+        }
+
+        // Handle fees separately to reduce stack
+        _handleChargeFeesAndTransfer(token, valueToCharge, auth.extraData);
+    }
+
+    function _validateChargeInputs(uint256 valueToCharge, Authorization memory auth) internal pure {
         if (valueToCharge > auth.value) {
             revert ValueLimitExceeded(valueToCharge);
         }
+        _validateFees(auth.extraData.feeBps, auth.extraData.feeRecipient);
+    }
 
-        _validateFees(data.feeBps, data.feeRecipient);
+    function _handleChargeFeesAndTransfer(address token, uint256 value, ExtraData memory data) internal {
+        uint256 feeAmount = value * data.feeBps / 10_000;
+        uint256 remainingValue = value - feeAmount;
 
-        bytes32 paymentDetailsHash = keccak256(abi.encode(auth));
-
-        // Pull the full authorized amount from the buyer
-        _executeReceiveWithAuth(auth, auth.value, paymentDetailsHash, signature);
-
-        // Calculate difference to refund
-        uint256 refundAmount = auth.value - valueToCharge;
-
-        // Return excess funds to buyer if any
-        if (refundAmount > 0) {
-            _transfer(auth.token, auth.from, refundAmount);
-        }
-
-        // Update captured amount for refund tracking
-        _captured[paymentDetailsHash] = valueToCharge;
-
-        emit PaymentCharged(paymentDetailsHash, valueToCharge);
-
-        // Handle fees only for the actual charged amount
-        _handleFees(auth.token, data.captureAddress, data.feeRecipient, data.feeBps, valueToCharge);
+        if (feeAmount > 0) _transfer(token, data.feeRecipient, feeAmount);
+        if (remainingValue > 0) _transfer(token, data.captureAddress, remainingValue);
     }
 
     /// @notice Validates buyer signature and transfers funds from buyer to escrow
@@ -174,17 +182,12 @@ contract PaymentEscrow {
         // Pull the full authorized amount from the buyer
         _executeReceiveWithAuth(auth, auth.value, paymentDetailsHash, signature);
 
-        // Calculate difference to refund
-        uint256 refundAmount = auth.value - valueToConfirm;
-
         // Update authorized amount to only what we're keeping
         _authorized[paymentDetailsHash] += valueToConfirm;
         emit AuthorizationIncreased(paymentDetailsHash, valueToConfirm);
 
-        // Return excess funds to buyer if any
-        if (refundAmount > 0) {
-            _transfer(auth.token, auth.from, refundAmount);
-        }
+        // Refund any excess amount
+        _refundExtraAuthorizedAmount(auth, auth.value, valueToConfirm);
     }
 
     /// @notice Permanently voids a payment authorization
@@ -310,22 +313,17 @@ contract PaymentEscrow {
         if (feeRecipient == address(0) && feeBps != 0) revert ZeroFeeRecipient();
     }
 
-    /// @notice Calculate and transfer fees
-    /// @param token Token to transfer
-    /// @param captureAddress Address to receive payment
-    /// @param feeRecipient Address to receive fees
-    /// @param feeBps Fee percentage in basis points
-    /// @param value Total amount to split between payment and fees
-    /// @return remainingValue Amount after fees deducted
-    function _handleFees(address token, address captureAddress, address feeRecipient, uint16 feeBps, uint256 value)
+    /// @dev Helper to refund any excess authorized amount back to the buyer
+    function _refundExtraAuthorizedAmount(Authorization memory auth, uint256 authorizedAmount, uint256 keepAmount)
         internal
-        returns (uint256 remainingValue)
     {
-        uint256 feeAmount = uint256(value) * feeBps / 10_000;
-        remainingValue = value - feeAmount;
+        // Calculate difference to refund
+        uint256 refundAmount = authorizedAmount - keepAmount;
 
-        if (feeAmount > 0) _transfer(token, feeRecipient, feeAmount);
-        if (remainingValue > 0) _transfer(token, captureAddress, remainingValue);
+        // Return excess funds to buyer if any
+        if (refundAmount > 0) {
+            _transfer(auth.token, auth.from, refundAmount);
+        }
     }
 
     /// @notice Transfer tokens from the escrow to a recipient

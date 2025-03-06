@@ -277,4 +277,90 @@ contract ChargeTest is PaymentEscrowBase {
         vm.expectRevert(abi.encodeWithSelector(PaymentEscrow.VoidAuthorization.selector, paymentDetailsHash));
         paymentEscrow.charge(authorizedAmount, paymentDetails, signature);
     }
+
+    function test_charge_withZeroFees() public {
+        uint256 amount = 100e6;
+
+        PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
+            token: address(mockERC3009Token),
+            from: buyerEOA,
+            to: address(paymentEscrow),
+            validAfter: block.timestamp - 1,
+            validBefore: block.timestamp + 1 days,
+            value: amount,
+            extraData: PaymentEscrow.ExtraData({
+                salt: 0,
+                operator: operator,
+                captureAddress: captureAddress,
+                feeBps: 0, // Zero fees
+                feeRecipient: address(0) // Zero fee recipient is valid when feeBps = 0
+            })
+        });
+
+        bytes memory paymentDetails = abi.encode(auth);
+        bytes32 paymentDetailsHash = keccak256(paymentDetails);
+
+        bytes memory signature = _signERC3009(
+            buyerEOA,
+            address(paymentEscrow),
+            amount,
+            auth.validAfter,
+            auth.validBefore,
+            paymentDetailsHash,
+            BUYER_EOA_PK
+        );
+
+        uint256 buyerBalanceBefore = mockERC3009Token.balanceOf(buyerEOA);
+
+        vm.prank(operator);
+        paymentEscrow.charge(amount, paymentDetails, signature);
+
+        // With zero fees, entire amount should go to captureAddress
+        assertEq(mockERC3009Token.balanceOf(captureAddress), amount);
+        assertEq(mockERC3009Token.balanceOf(feeRecipient), 0);
+        assertEq(mockERC3009Token.balanceOf(buyerEOA), buyerBalanceBefore - amount);
+    }
+
+    function test_charge_withMaxFees() public {
+        uint256 amount = 100e6;
+
+        PaymentEscrow.Authorization memory auth = PaymentEscrow.Authorization({
+            token: address(mockERC3009Token),
+            from: buyerEOA,
+            to: address(paymentEscrow),
+            validAfter: block.timestamp - 1,
+            validBefore: block.timestamp + 1 days,
+            value: amount,
+            extraData: PaymentEscrow.ExtraData({
+                salt: 0,
+                operator: operator,
+                captureAddress: captureAddress,
+                feeBps: 10_000, // 100% fees
+                feeRecipient: feeRecipient
+            })
+        });
+
+        bytes memory paymentDetails = abi.encode(auth);
+        bytes32 paymentDetailsHash = keccak256(paymentDetails);
+
+        bytes memory signature = _signERC3009(
+            buyerEOA,
+            address(paymentEscrow),
+            amount,
+            auth.validAfter,
+            auth.validBefore,
+            paymentDetailsHash,
+            BUYER_EOA_PK
+        );
+
+        uint256 buyerBalanceBefore = mockERC3009Token.balanceOf(buyerEOA);
+
+        vm.prank(operator);
+        paymentEscrow.charge(amount, paymentDetails, signature);
+
+        // With 100% fees, entire amount should go to feeRecipient
+        assertEq(mockERC3009Token.balanceOf(captureAddress), 0);
+        assertEq(mockERC3009Token.balanceOf(feeRecipient), amount);
+        assertEq(mockERC3009Token.balanceOf(buyerEOA), buyerBalanceBefore - amount);
+    }
 }

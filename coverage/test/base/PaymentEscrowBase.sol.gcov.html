@@ -1,0 +1,131 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - test/base/PaymentEscrowBase.sol</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="title">LCOV - code coverage report</td></tr>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+            <tr>
+              <td width="100%">
+                <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="10%" class="headerValue"><a href="../../index.html" title="Click to go to top-level">top level</a> - <a href="index.html" title="Click to go to directory test/base">test/base</a> - PaymentEscrowBase.sol<span style="font-size: 80%;"> (source / <a href="PaymentEscrowBase.sol.func-c.html" title="Click to go to function table">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="5%"></td>
+            <td width="5%" class="headerCovTableHead">Coverage</td>
+            <td width="5%" class="headerCovTableHead" title="Covered + Uncovered code">Total</td>
+            <td width="5%" class="headerCovTableHead" title="Exercised code only">Hit</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">14</td>
+            <td class="headerCovTableEntry">14</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test Date:</td>
+            <td class="headerValue">2025-03-05 15:55:33</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
+            <td class="headerCovTableEntry">2</td>
+            <td class="headerCovTableEntry">2</td>
+          </tr>
+                  <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+          </table>
+
+          <table cellpadding=0 cellspacing=0 border=0>
+            <tr>
+              <td><br></td>
+            </tr>
+            <tr>
+              <td>
+<pre class="sourceHeading">            Line data    Source code</pre>
+<pre class="source">
+<span id="L1"><span class="lineNum">       1</span>              : // SPDX-License-Identifier: UNLICENSED</span>
+<span id="L2"><span class="lineNum">       2</span>              : pragma solidity ^0.8.13;</span>
+<span id="L3"><span class="lineNum">       3</span>              : </span>
+<span id="L4"><span class="lineNum">       4</span>              : import {Test} from &quot;forge-std/Test.sol&quot;;</span>
+<span id="L5"><span class="lineNum">       5</span>              : import {PaymentEscrow} from &quot;../../src/PaymentEscrow.sol&quot;;</span>
+<span id="L6"><span class="lineNum">       6</span>              : import {PublicERC6492Validator} from &quot;spend-permissions/PublicERC6492Validator.sol&quot;;</span>
+<span id="L7"><span class="lineNum">       7</span>              : import {IERC3009} from &quot;../../src/IERC3009.sol&quot;;</span>
+<span id="L8"><span class="lineNum">       8</span>              : import {MockERC3009Token} from &quot;../mocks/MockERC3009Token.sol&quot;;</span>
+<span id="L9"><span class="lineNum">       9</span>              : </span>
+<span id="L10"><span class="lineNum">      10</span>              : contract PaymentEscrowBase is Test {</span>
+<span id="L11"><span class="lineNum">      11</span>              :     PaymentEscrow public paymentEscrow;</span>
+<span id="L12"><span class="lineNum">      12</span>              :     PublicERC6492Validator public erc6492Validator;</span>
+<span id="L13"><span class="lineNum">      13</span>              :     MockERC3009Token public mockERC3009Token;</span>
+<span id="L14"><span class="lineNum">      14</span>              : </span>
+<span id="L15"><span class="lineNum">      15</span>              :     address public operator;</span>
+<span id="L16"><span class="lineNum">      16</span>              :     address public captureAddress;</span>
+<span id="L17"><span class="lineNum">      17</span>              :     address public buyerEOA;</span>
+<span id="L18"><span class="lineNum">      18</span>              :     address public feeRecipient;</span>
+<span id="L19"><span class="lineNum">      19</span>              :     uint16 constant FEE_BPS = 100; // 1%</span>
+<span id="L20"><span class="lineNum">      20</span>              :     uint256 internal constant BUYER_EOA_PK = 0x1234;</span>
+<span id="L21"><span class="lineNum">      21</span>              : </span>
+<span id="L22"><span class="lineNum">      22</span> <span class="tlaGNC">          30 :     function setUp() public virtual {</span></span>
+<span id="L23"><span class="lineNum">      23</span> <span class="tlaGNC">          30 :         erc6492Validator = new PublicERC6492Validator();</span></span>
+<span id="L24"><span class="lineNum">      24</span> <span class="tlaGNC">          30 :         paymentEscrow = new PaymentEscrow(address(erc6492Validator));</span></span>
+<span id="L25"><span class="lineNum">      25</span> <span class="tlaGNC">          30 :         mockERC3009Token = new MockERC3009Token(&quot;Mock USDC&quot;, &quot;mUSDC&quot;, 6);</span></span>
+<span id="L26"><span class="lineNum">      26</span>              : </span>
+<span id="L27"><span class="lineNum">      27</span> <span class="tlaGNC">          30 :         operator = makeAddr(&quot;operator&quot;);</span></span>
+<span id="L28"><span class="lineNum">      28</span> <span class="tlaGNC">          30 :         captureAddress = makeAddr(&quot;captureAddress&quot;);</span></span>
+<span id="L29"><span class="lineNum">      29</span> <span class="tlaGNC">          30 :         buyerEOA = vm.addr(BUYER_EOA_PK); // Derive address from private key</span></span>
+<span id="L30"><span class="lineNum">      30</span> <span class="tlaGNC">          30 :         feeRecipient = makeAddr(&quot;feeRecipient&quot;);</span></span>
+<span id="L31"><span class="lineNum">      31</span>              : </span>
+<span id="L32"><span class="lineNum">      32</span> <span class="tlaGNC">          30 :         mockERC3009Token.mint(buyerEOA, 1000e6);</span></span>
+<span id="L33"><span class="lineNum">      33</span>              :     }</span>
+<span id="L34"><span class="lineNum">      34</span>              : </span>
+<span id="L35"><span class="lineNum">      35</span> <span class="tlaGNC">        4695 :     function _signERC3009(</span></span>
+<span id="L36"><span class="lineNum">      36</span>              :         address from,</span>
+<span id="L37"><span class="lineNum">      37</span>              :         address to,</span>
+<span id="L38"><span class="lineNum">      38</span>              :         uint256 value,</span>
+<span id="L39"><span class="lineNum">      39</span>              :         uint256 validAfter,</span>
+<span id="L40"><span class="lineNum">      40</span>              :         uint256 validBefore,</span>
+<span id="L41"><span class="lineNum">      41</span>              :         bytes32 nonce,</span>
+<span id="L42"><span class="lineNum">      42</span>              :         uint256 signerPk</span>
+<span id="L43"><span class="lineNum">      43</span>              :     ) internal view returns (bytes memory) {</span>
+<span id="L44"><span class="lineNum">      44</span> <span class="tlaGNC">        4695 :         bytes32 structHash = keccak256(</span></span>
+<span id="L45"><span class="lineNum">      45</span>              :             abi.encode(</span>
+<span id="L46"><span class="lineNum">      46</span>              :                 mockERC3009Token.RECEIVE_WITH_AUTHORIZATION_TYPEHASH(), from, to, value, validAfter, validBefore, nonce</span>
+<span id="L47"><span class="lineNum">      47</span>              :             )</span>
+<span id="L48"><span class="lineNum">      48</span>              :         );</span>
+<span id="L49"><span class="lineNum">      49</span>              : </span>
+<span id="L50"><span class="lineNum">      50</span> <span class="tlaGNC">        4695 :         bytes32 digest = keccak256(abi.encodePacked(&quot;\x19\x01&quot;, mockERC3009Token.DOMAIN_SEPARATOR(), structHash));</span></span>
+<span id="L51"><span class="lineNum">      51</span>              : </span>
+<span id="L52"><span class="lineNum">      52</span> <span class="tlaGNC">        4695 :         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerPk, digest);</span></span>
+<span id="L53"><span class="lineNum">      53</span> <span class="tlaGNC">        4695 :         return abi.encodePacked(r, s, v);</span></span>
+<span id="L54"><span class="lineNum">      54</span>              :     }</span>
+<span id="L55"><span class="lineNum">      55</span>              : }</span>
+        </pre>
+              </td>
+            </tr>
+          </table>
+          <br>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+            <tr><td class="versionInfo">Generated by: <a href="https://github.com//linux-test-project/lcov" target="_parent">LCOV version 2.3-1</a></td></tr>
+          </table>
+          <br>
+
+</body>
+</html>
