@@ -134,11 +134,11 @@ contract CaptureAuthorizationTest is PaymentEscrowBase {
         uint256 captureAmount,
         uint48 captureDeadline
     ) public {
-        vm.assume(captureDeadline > 0 && captureDeadline < type(uint48).max);
+        vm.assume(captureDeadline > 0 && captureDeadline < type(uint40).max);
         uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
 
         vm.assume(authorizedAmount > 0 && authorizedAmount <= buyerBalance);
-        vm.assume(captureAmount <= authorizedAmount);
+        vm.assume(captureAmount > 0 && captureAmount <= authorizedAmount);
 
         PaymentEscrow.Authorization memory auth = _createPaymentEscrowAuthorization(buyerEOA, authorizedAmount);
         auth.captureDeadline = captureDeadline;

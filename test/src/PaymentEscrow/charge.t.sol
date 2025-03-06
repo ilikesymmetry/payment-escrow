@@ -11,6 +11,7 @@ contract ChargeTest is PaymentEscrowBase {
         vm.assume(amount > 0 && amount <= buyerBalance);
 
         PaymentEscrow.Authorization memory auth = _createPaymentEscrowAuthorization(buyerEOA, amount);
+        vm.warp(auth.captureDeadline - 1);
 
         bytes memory paymentDetails = abi.encode(auth);
         bytes32 paymentDetailsHash = keccak256(paymentDetails);
@@ -43,6 +44,7 @@ contract ChargeTest is PaymentEscrowBase {
         vm.assume(chargeAmount > 0 && chargeAmount < authorizedAmount);
 
         PaymentEscrow.Authorization memory auth = _createPaymentEscrowAuthorization(buyerEOA, authorizedAmount);
+        vm.warp(auth.captureDeadline - 1);
 
         bytes memory paymentDetails = abi.encode(auth);
         bytes32 paymentDetailsHash = keccak256(paymentDetails);
@@ -73,6 +75,7 @@ contract ChargeTest is PaymentEscrowBase {
         uint256 valueToCharge = 60e6; // Charge less than authorized to test refund events
 
         PaymentEscrow.Authorization memory auth = _createPaymentEscrowAuthorization(buyerEOA, authorizedAmount);
+        vm.warp(auth.captureDeadline - 1);
 
         bytes memory paymentDetails = abi.encode(auth);
         bytes32 paymentDetailsHash = keccak256(paymentDetails);
@@ -105,6 +108,7 @@ contract ChargeTest is PaymentEscrowBase {
         uint256 refundAmount = chargeAmount / 2;
 
         PaymentEscrow.Authorization memory auth = _createPaymentEscrowAuthorization(buyerEOA, authorizedAmount);
+        vm.warp(auth.captureDeadline - 1);
 
         bytes memory paymentDetails = abi.encode(auth);
         bytes32 paymentDetailsHash = keccak256(paymentDetails);
@@ -155,6 +159,25 @@ contract ChargeTest is PaymentEscrowBase {
         uint256 chargeAmount = authorizedAmount + 1; // Always exceeds authorized
 
         PaymentEscrow.Authorization memory auth = _createPaymentEscrowAuthorization(buyerEOA, authorizedAmount);
+        vm.warp(auth.captureDeadline - 1);
+
+        bytes memory paymentDetails = abi.encode(auth);
+
+        vm.prank(operator);
+        vm.expectRevert(abi.encodeWithSelector(PaymentEscrow.ValueLimitExceeded.selector, chargeAmount));
+        paymentEscrow.charge(chargeAmount, paymentDetails, "");
+    }
+
+    function test_charge_reverts_afterCaptureDeadline(uint256 authorizedAmount, uint48 captureDeadline) public {
+        uint256 buyerBalance = mockERC3009Token.balanceOf(buyerEOA);
+        vm.assume(captureDeadline < type(uint48).max);
+
+        vm.assume(authorizedAmount > 0 && authorizedAmount <= buyerBalance);
+        uint256 chargeAmount = authorizedAmount + 1; // Always exceeds authorized
+
+        PaymentEscrow.Authorization memory auth = _createPaymentEscrowAuthorization(buyerEOA, authorizedAmount);
+        auth.captureDeadline = captureDeadline;
+        vm.warp(captureDeadline + 1);
 
         bytes memory paymentDetails = abi.encode(auth);
 

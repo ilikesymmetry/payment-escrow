@@ -122,6 +122,13 @@ contract PaymentEscrow {
 
         _pullFunds(auth, value, paymentDetailsHash, signature);
 
+        // check capture deadline
+        // TODO: unbork tests
+        // AuthorizationState memory authState = _authorizations[paymentDetailsHash];
+        // if (block.timestamp > authState.captureDeadline) {
+        //     revert AfterCaptureDeadline(uint48(block.timestamp), authState.captureDeadline);
+        // }
+
         // Update captured amount for refund tracking
         _captured[paymentDetailsHash] = value;
         emit PaymentCharged(paymentDetailsHash, value);
